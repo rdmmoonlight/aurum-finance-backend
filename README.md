@@ -13,11 +13,20 @@ Here's a list of features included in this project:
 
 | Name | Description |
 |------|-------------|
-| [Content Negotiation](https://start.ktor.io/p/io.ktor/server-content-negotiation) | Provides automatic content conversion according to Content-Type and Accept headers |
 | [kotlinx.serialization](https://start.ktor.io/p/io.ktor/server-kotlinx-serialization) | Handles JSON serialization using kotlinx.serialization library |
-| [Status Pages](https://start.ktor.io/p/io.ktor/server-status-pages) | Provides exception handling for routes |
+| [Content Negotiation](https://start.ktor.io/p/io.ktor/server-content-negotiation) | Provides automatic content conversion according to Content-Type and Accept headers |
+| [kotlinx.rpc](https://start.ktor.io/p/org.jetbrains/kotlinx-rpc) | Adds remote procedure call (RPC) routing |
 | [Resources](https://start.ktor.io/p/io.ktor/server-resources) | Provides type-safe routing |
 
+## Structure
+This project includes the following modules:
+
+| Path | Description |
+|------|-------------|
+|  | null |
+| client | null |
+| core | null |
+| server | null |
 
 ## Building & Running
 To build or run the project, use one of the following tasks:
@@ -25,9 +34,9 @@ To build or run the project, use one of the following tasks:
 
 | Task | Description |
 |------|-------------|
-| `./kotlin test`    | Run the tests     |
-| `./kotlin build`   | Build the project |
-| `./kotlin run`     | Run the server    |
+| `./gradlew :server:test`    | Run the tests     |
+| `./gradlew :server:build`   | Build the project |
+| `./gradlew :server:run`     | Run the server    |
 
 If the server starts successfully, you'll see the following output:
 ```

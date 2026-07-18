@@ -1,0 +1,9 @@
+ktor:
+  deployment:
+    port: 8080
+  application:
+    modules:
+      - com.aurumfinance.SerializationKt.configureSerialization
+      - com.aurumfinance.RpcKt.configureRpc
+      - com.aurumfinance.ResourcesKt.configureResources
+      - com.aurumfinance.RoutingKt.configureRouting
