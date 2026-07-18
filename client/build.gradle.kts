@@ -1,7 +1,7 @@
 
 plugins {
-    alias(libs.plugins.kotlin.multiplatform)
-    alias(libs.plugins.kotlinx.rpc)
+    alias(libs.plugins.kotlin.jvm) // Mengambil versi otomatis dari toml
+    id("io.ktor.plugin") version "2.3.12"
 }
 
 

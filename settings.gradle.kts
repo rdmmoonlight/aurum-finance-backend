@@ -3,6 +3,7 @@ pluginManagement {
         mavenCentral()
         gradlePluginPortal()
     }
+    kotlin("jvm") version "2.4.0"
 }
 
 plugins {
