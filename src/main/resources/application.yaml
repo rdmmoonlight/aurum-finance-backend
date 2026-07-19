@@ -1,8 +1,0 @@
-ktor:
-  deployment:
-    port: 8080
-    port: ${?PORT}
-    host: 0.0.0.0
-  application:
-    modules:
-      - com.aurumfinance.backend.ApplicationKt.module
