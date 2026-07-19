@@ -1,0 +1,6 @@
+- Favor long-term maintainability over short-term productivity.
+- Minimize unnecessary complexity.
+- Introduce abstractions only when they solve real problems.
+- Keep modules isolated and cohesive.
+- Make decisions based on evidence, not trends.
+- Evolve the architecture incrementally.
