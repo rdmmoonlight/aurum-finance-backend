@@ -36,10 +36,16 @@ if (envName.Equals("Development", StringComparison.OrdinalIgnoreCase))
     builder.Configuration.AddUserSecrets(Assembly.GetExecutingAssembly(), optional: true);
 }
 
+// 6. AMANKAN PORT: Baca variabel PORT bawaan Render, jika tidak ada pakai 8080 (Bebas dari eror kurung siku!)
+var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Listen(System.Net.IPAddress.Any, int.Parse(port));
+});
+
 // ---- Logging -----------------------------------------------------------
 builder.ConfigureSerilog();
-
-// .... (Sisa kode Services dan Pipeline di bawahnya biarkan tetap utuh seperti biasa)
+// ... (Sisa kode ke bawahnya biarkan tetap seperti semula)
 
 // ---- Core services -------------------------------------------------------
 builder.Services.AddControllers()
