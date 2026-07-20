@@ -11,26 +11,26 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Serilog;
 
-// 1. Tentukan nama Environment secara eksplisit dari sistem operasi
+// 1. Dapatkan nama Environment secara tegas
 var envName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production";
 
-// 2. Gunakan CreateBuilder normal, namun setel nama Environment secara manual
+// 2. Buat builder dengan menyuntikkan Environment secara manual
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 {
     Args = args,
     EnvironmentName = envName
 });
 
-// 3. Bersihkan total konfigurasi default bawaan .NET yang menyalakan inotify secara diam-diam
+// 3. Bersihkan total konfigurasi bawaan .NET yang menyalakan inotify diam-diam
 builder.Configuration.Sources.Clear();
 
-// 4. Daftarkan ulang konfigurasi secara manual dengan memaksa "reloadOnChange: false" (Bebas dari eror inotify Render!)
+// 4. Daftarkan ulang appsettings secara manual dan KUNCI "reloadOnChange: false"
 builder.Configuration
     .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
     .AddJsonFile($"appsettings.{envName}.json", optional: true, reloadOnChange: false)
     .AddEnvironmentVariables();
 
-// 5. Masukkan User Secrets hanya jika berjalan di lingkungan laptop lokal (Development)
+// 5. Masukkan User Secrets hanya saat Anda ngoding di laptop (Development)
 if (envName.Equals("Development", StringComparison.OrdinalIgnoreCase))
 {
     builder.Configuration.AddUserSecrets(Assembly.GetExecutingAssembly(), optional: true);
@@ -38,6 +38,8 @@ if (envName.Equals("Development", StringComparison.OrdinalIgnoreCase))
 
 // ---- Logging -----------------------------------------------------------
 builder.ConfigureSerilog();
+
+// .... (Sisa kode Services dan Pipeline di bawahnya biarkan tetap utuh seperti biasa)
 
 // ---- Core services -------------------------------------------------------
 builder.Services.AddControllers()
