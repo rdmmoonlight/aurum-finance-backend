@@ -1,0 +1,57 @@
+2026-07-20 09:28:05.434 +07:00 [DBG] Hosting starting
+2026-07-20 09:28:06.190 +07:00 [INF] Now listening on: http://localhost:5080
+2026-07-20 09:28:06.198 +07:00 [INF] Application started. Press Ctrl+C to shut down.
+2026-07-20 09:28:06.203 +07:00 [INF] Hosting environment: Development
+2026-07-20 09:28:06.218 +07:00 [INF] Content root path: E:\Aurum\aurum-finance-backend\Aurum.Api
+2026-07-20 09:28:06.226 +07:00 [DBG] Hosting started
+2026-07-20 09:32:25.339 +07:00 [DBG] Hosting starting
+2026-07-20 09:32:25.651 +07:00 [INF] Now listening on: http://localhost:5080
+2026-07-20 09:32:25.672 +07:00 [INF] Application started. Press Ctrl+C to shut down.
+2026-07-20 09:32:25.758 +07:00 [INF] Hosting environment: Development
+2026-07-20 09:32:25.785 +07:00 [INF] Content root path: E:\Aurum\aurum-finance-backend\Aurum.Api
+2026-07-20 09:32:25.800 +07:00 [DBG] Hosting started
+2026-07-20 09:33:31.902 +07:00 [INF] Application is shutting down...
+2026-07-20 09:33:31.903 +07:00 [DBG] Hosting stopping
+2026-07-20 09:33:32.082 +07:00 [DBG] Hosting stopped
+2026-07-20 09:34:03.809 +07:00 [DBG] Hosting starting
+2026-07-20 09:34:04.063 +07:00 [INF] Now listening on: http://localhost:5080
+2026-07-20 09:34:04.069 +07:00 [INF] Application started. Press Ctrl+C to shut down.
+2026-07-20 09:34:04.083 +07:00 [INF] Hosting environment: Development
+2026-07-20 09:34:04.093 +07:00 [INF] Content root path: E:\Aurum\aurum-finance-backend\Aurum.Api
+2026-07-20 09:34:04.102 +07:00 [DBG] Hosting started
+2026-07-20 09:35:03.357 +07:00 [WRN] Failed to determine the https port for redirect.
+2026-07-20 09:35:07.727 +07:00 [DBG] Running health checks
+2026-07-20 09:35:07.736 +07:00 [DBG] Running health check postgresql
+2026-07-20 09:35:12.013 +07:00 [ERR] Health check postgresql with status "Unhealthy" completed after 4273.9381ms with message 'Failed to connect to 127.0.0.1:5432'
+Npgsql.NpgsqlException (0x80004005): Failed to connect to 127.0.0.1:5432
+ ---> System.Net.Sockets.SocketException (10061): No connection could be made because the target machine actively refused it.
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.ThrowException(SocketError error, CancellationToken cancellationToken)
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at System.Threading.Tasks.ValueTask.ValueTaskSourceAsTask.<>c.<.cctor>b__4_0(Object state)
+--- End of stack trace from previous location ---
+   at Npgsql.TaskTimeoutAndCancellation.ExecuteAsync(Func`2 getTaskFunc, NpgsqlTimeout timeout, CancellationToken cancellationToken)
+   at Npgsql.Internal.NpgsqlConnector.ConnectAsync(NpgsqlTimeout timeout, CancellationToken cancellationToken)
+   at Npgsql.Internal.NpgsqlConnector.ConnectAsync(NpgsqlTimeout timeout, CancellationToken cancellationToken)
+   at Npgsql.Internal.NpgsqlConnector.RawOpen(SslMode sslMode, NpgsqlTimeout timeout, Boolean async, CancellationToken cancellationToken, Boolean isFirstAttempt)
+   at Npgsql.Internal.NpgsqlConnector.<Open>g__OpenCore|213_1(NpgsqlConnector conn, SslMode sslMode, NpgsqlTimeout timeout, Boolean async, CancellationToken cancellationToken, Boolean isFirstAttempt)
+   at Npgsql.Internal.NpgsqlConnector.Open(NpgsqlTimeout timeout, Boolean async, CancellationToken cancellationToken)
+   at Npgsql.PoolingDataSource.OpenNewConnector(NpgsqlConnection conn, NpgsqlTimeout timeout, Boolean async, CancellationToken cancellationToken)
+   at Npgsql.PoolingDataSource.<Get>g__RentAsync|33_0(NpgsqlConnection conn, NpgsqlTimeout timeout, Boolean async, CancellationToken cancellationToken)
+   at Npgsql.NpgsqlConnection.<Open>g__OpenAsync|42_0(Boolean async, CancellationToken cancellationToken)
+   at HealthChecks.NpgSql.NpgSqlHealthCheck.CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken) in /home/runner/work/AspNetCore.Diagnostics.HealthChecks/AspNetCore.Diagnostics.HealthChecks/src/HealthChecks.NpgSql/NpgSqlHealthCheck.cs:line 31
+   at HealthChecks.NpgSql.NpgSqlHealthCheck.CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken) in /home/runner/work/AspNetCore.Diagnostics.HealthChecks/AspNetCore.Diagnostics.HealthChecks/src/HealthChecks.NpgSql/NpgSqlHealthCheck.cs:line 37
+2026-07-20 09:35:12.101 +07:00 [DBG] Health check processing with combined status "Unhealthy" completed after 4369.0235ms
+2026-07-20 09:35:12.655 +07:00 [ERR] HTTP GET /health responded 503 in 9556.9490 ms
+2026-07-20 09:35:13.136 +07:00 [INF] HTTP GET /favicon.ico responded 404 in 6.5527 ms
+2026-07-20 09:39:08.693 +07:00 [INF] HTTP GET //swagger responded 404 in 56.5129 ms
+2026-07-20 09:39:15.868 +07:00 [INF] HTTP GET /swagger responded 301 in 9.9155 ms
+2026-07-20 09:39:16.099 +07:00 [INF] HTTP GET /swagger/index.html responded 200 in 103.1012 ms
+2026-07-20 09:39:16.715 +07:00 [INF] HTTP GET /swagger/swagger-ui.css responded 200 in 51.3906 ms
+2026-07-20 09:39:16.730 +07:00 [INF] HTTP GET /swagger/swagger-ui-standalone-preset.js responded 200 in 51.2773 ms
+2026-07-20 09:39:16.788 +07:00 [INF] HTTP GET /swagger/swagger-ui-bundle.js responded 200 in 112.5887 ms
+2026-07-20 09:39:17.219 +07:00 [INF] HTTP GET /swagger/favicon-16x16.png responded 200 in 0.2711 ms
+2026-07-20 09:39:17.514 +07:00 [INF] HTTP GET /swagger/v1/swagger.json responded 200 in 327.2052 ms
+2026-07-20 09:40:42.869 +07:00 [INF] HTTP GET /scalar responded 404 in 1.1224 ms
+2026-07-20 09:41:18.088 +07:00 [INF] Application is shutting down...
+2026-07-20 09:41:18.101 +07:00 [DBG] Hosting stopping
+2026-07-20 09:41:18.193 +07:00 [DBG] Hosting stopped
