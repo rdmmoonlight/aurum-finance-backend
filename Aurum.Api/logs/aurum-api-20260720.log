@@ -55,3 +55,12 @@ Npgsql.NpgsqlException (0x80004005): Failed to connect to 127.0.0.1:5432
 2026-07-20 09:41:18.088 +07:00 [INF] Application is shutting down...
 2026-07-20 09:41:18.101 +07:00 [DBG] Hosting stopping
 2026-07-20 09:41:18.193 +07:00 [DBG] Hosting stopped
+2026-07-20 10:13:55.440 +07:00 [DBG] Hosting starting
+2026-07-20 10:13:55.711 +07:00 [INF] Now listening on: http://localhost:5080
+2026-07-20 10:13:55.718 +07:00 [INF] Application started. Press Ctrl+C to shut down.
+2026-07-20 10:13:55.721 +07:00 [INF] Hosting environment: Development
+2026-07-20 10:13:55.723 +07:00 [INF] Content root path: E:\Aurum\aurum-finance-backend\Aurum.Api
+2026-07-20 10:13:55.725 +07:00 [DBG] Hosting started
+2026-07-20 10:14:08.253 +07:00 [INF] Application is shutting down...
+2026-07-20 10:14:08.263 +07:00 [DBG] Hosting stopping
+2026-07-20 10:14:08.347 +07:00 [DBG] Hosting stopped
