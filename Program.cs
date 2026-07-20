@@ -8,35 +8,33 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Mvc;
 using Serilog;
 
-// ---- Fix inotify limit: Inisialisasi Builder Tanpa Default Configuration Sources ----
-var options = new WebApplicationOptions { Args = args };
-var builder = WebApplication.CreateBuilder(options);
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyModel;
 
-// Bersihkan dan pasang kembali konfigurasi secara manual tanpa file watcher (reloadOnChange: false)
-builder.Configuration.Sources.Clear();
-builder.Configuration
+var configuration = new ConfigurationBuilder()
     .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
-    .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: false)
-    .AddEnvironmentVariables();
+    .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"}.json", optional: true, reloadOnChange: false)
+    .AddEnvironmentVariables()
+    .Build();
 
-// ---- Logging -----------------------------------------------------------
+var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions { Args = args });
+
+builder.Configuration.AddConfiguration(configuration);
+
+var envName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production";
+builder.Environment.EnvironmentName = envName;
+
 builder.ConfigureSerilog();
 
-// ---- Core services -------------------------------------------------------
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
-        // Lets Update*Request DTOs use Optional<T> to distinguish "field
-        // omitted" from "field explicitly null" — see Core/Shared/Optional.cs.
         options.JsonSerializerOptions.Converters.Add(new Aurum.Api.Core.Serialization.OptionalJsonConverterFactory());
     });
 builder.Services.AddValidatorsFromAssembly(Assembly.GetExecutingAssembly());
 
-// All request validation is funneled through FluentValidation +
-// ValidateAndThrowAppExceptionAsync (see Core/Extensions/FluentValidationExtensions.cs),
-// so every error response matches the ErrorResponse {error} shape. Disable
-// ASP.NET's own automatic 400/ProblemDetails response so it can't produce
-// a differently-shaped error for the same kind of failure.
 builder.Services.Configure<ApiBehaviorOptions>(options =>
 {
     options.SuppressModelStateInvalidFilter = true;
@@ -60,14 +58,14 @@ app.UseAppExceptionHandling();
 
 app.UseSerilogRequestLogging();
 
-// Swagger is left available in every environment (including production) so the
-// API can be inspected post-deploy on Render. Restrict this behind a flag or
-// remove the `else` exposure once the API is closer to a public release.
+if (app.Environment.IsDevelopment())
+{
 app.UseSwagger();
 app.UseSwaggerUI(options =>
 {
     options.SwaggerEndpoint("/swagger/v1/swagger.json", "Aurum API v1");
 });
+}
 
 app.UseHttpsRedirection();
 
