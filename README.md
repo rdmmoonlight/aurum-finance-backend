@@ -74,7 +74,7 @@ Aurum.Api
 
    ```bash
    git clone https://github.com/rdmmoonlight/aurum-finance-backend.git
-   cd aurum-finance-backend/Aurum.Api
+   cd aurum-finance-backend
    dotnet restore
    ```
 
