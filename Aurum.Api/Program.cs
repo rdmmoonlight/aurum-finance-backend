@@ -8,12 +8,16 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Mvc;
 using Serilog;
 
-var builder = WebApplication.CreateBuilder(args);
+// ---- Fix inotify limit: Inisialisasi Builder Tanpa Default Configuration Sources ----
+var options = new WebApplicationOptions { Args = args };
+var builder = WebApplication.CreateBuilder(options);
 
+// Bersihkan dan pasang kembali konfigurasi secara manual tanpa file watcher (reloadOnChange: false)
 builder.Configuration.Sources.Clear();
-builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
-                     .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: false)
-                     .AddEnvironmentVariables();
+builder.Configuration
+    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+    .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: false)
+    .AddEnvironmentVariables();
 
 // ---- Logging -----------------------------------------------------------
 builder.ConfigureSerilog();
