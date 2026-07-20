@@ -1,0 +1,50 @@
+# ==========================================
+# 1. BINAAN KOMPILASI .NET (SANGAT KRUSIAL)
+# ==========================================
+# Memastikan semua folder build di dalam sub-folder ikut terabaikan
+**/bin/
+**/obj/
+[Dd]ebug/
+[Rr]elease/
+
+# ==========================================
+# 2. LOG APLIKASI (SERILOG)
+# ==========================================
+# Mengabaikan folder logs (seperti aurum-api-20260720.log) agar tidak mengotori repositori
+**/logs/
+*.log
+
+# ==========================================
+# 3. KUNCI RAHASIA & FILES SENSITIF (.NET / CONFIG)
+# ==========================================
+# File konfigurasi lokal yang berisi password/credential asli
+**/appsettings.Development.json
+**/appsettings.Local.json
+
+# File User Secrets / Environment Variables cadangan jika ada
+.env
+.env.local
+.env.development.local
+*.pem
+*.key
+
+# ==========================================
+# 4. IDE / WORKSPACE ARTIFACTS
+# ==========================================
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# ==========================================
+# 5. OS ARTIFACTS
+# ==========================================
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.bak
+*.tmp
+*.swp
