@@ -1,4 +1,12 @@
+commit & push:
+git checkout main
 git pull origin main
 git add .
-git commit -m "chore: inisiasi awal struktur backend Ktor"
+git commit -m "Bismillah, fix atau update"
 git push origin main
+
+run server:
+& "C:\Program Files\dotnet\dotnet.exe" run
+
+bersih2:
+& "C:\Program Files\dotnet\dotnet.exe" clean
