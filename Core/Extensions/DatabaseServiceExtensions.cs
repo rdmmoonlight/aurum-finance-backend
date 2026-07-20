@@ -1,6 +1,7 @@
 using Aurum.Api.Core.Utilities;
 using Aurum.Api.Features.Accounting.Accounts.Entities;
 using Aurum.Api.Features.Accounting.Periods.Entities;
+using Aurum.Api.Features.BankAccount.Entities;
 using Aurum.Api.Features.Journals.Entities;
 using Aurum.Api.Infrastructure.Database;
 using Microsoft.EntityFrameworkCore;
@@ -37,6 +38,8 @@ public static class DatabaseServiceExtensions
         dataSourceBuilder.MapEnum<AccountRole>("account_role");
         dataSourceBuilder.MapEnum<PeriodStatus>("period_status");
         dataSourceBuilder.MapEnum<JournalKind>("journal_kind");
+        dataSourceBuilder.MapEnum<BankProvider>("bank_provider");
+        dataSourceBuilder.MapEnum<BankTransactionType>("bank_transaction_type");
         var dataSource = dataSourceBuilder.Build();
 
         services.AddSingleton(dataSource);

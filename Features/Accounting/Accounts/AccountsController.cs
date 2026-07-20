@@ -4,7 +4,7 @@ using Aurum.Api.Features.Accounting.Accounts.Dtos;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using OkResult = Aurum.Api.Core.Shared.OkResult;
+using SharedOkResult = Aurum.Api.Core.Shared.OkResult;
 
 namespace Aurum.Api.Features.Accounting.Accounts;
 
@@ -71,9 +71,9 @@ public sealed class AccountsController : ControllerBase
     }
 
     [HttpDelete("{id:guid}")]
-    public async Task<ActionResult<OkResult>> Remove(Guid id, CancellationToken ct)
+    public async Task<ActionResult<Aurum.Api.Core.Shared.OkResult>> Remove(Guid id, CancellationToken ct)
     {
         await _accountsService.RemoveAsync(id, ct);
-        return Ok(new OkResult());
+        return Ok(new Aurum.Api.Core.Shared.OkResult());
     }
 }

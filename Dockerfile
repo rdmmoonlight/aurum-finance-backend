@@ -1,16 +1,16 @@
-# ---- Build stage ---------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-# Restore first (leveraging Docker layer caching)
+# 1. Salin file csproj langsung dari root repositori ke root /src di Docker
 COPY Aurum.Api.csproj .
 RUN dotnet restore Aurum.Api.csproj
 
-# Copy the rest of the source and publish
+# 2. Salin seluruh sisa file kode dari root repositori
 COPY . .
+
+# 3. Jalankan publish langsung ke file csproj yang ada di root
 RUN dotnet publish Aurum.Api.csproj -c Release -o /app/publish --no-restore
 
-# ---- Runtime stage --------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app/publish .

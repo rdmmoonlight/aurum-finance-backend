@@ -9,29 +9,28 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyModel;
 using Serilog;
 
-// 1. Tentukan nama Environment
+// 1. Tentukan nama Environment secara eksplisit dari sistem operasi
 var envName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production";
 
-// 2. Gunakan CreateBuilder normal, tapi matikan pencarian file otomatis bawaan .NET di internal host
+// 2. Gunakan CreateBuilder normal, namun setel nama Environment secara manual
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 {
     Args = args,
     EnvironmentName = envName
 });
 
-// 3. Bersihkan total sources bawaan .NET yang menyalakan inotify diam-diam
+// 3. Bersihkan total konfigurasi default bawaan .NET yang menyalakan inotify secara diam-diam
 builder.Configuration.Sources.Clear();
 
-// 4. Daftarkan ulang secara manual dengan memaksa "reloadOnChange: false" (Bebas inotify!)
+// 4. Daftarkan ulang konfigurasi secara manual dengan memaksa "reloadOnChange: false" (Bebas dari eror inotify Render!)
 builder.Configuration
     .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
     .AddJsonFile($"appsettings.{envName}.json", optional: true, reloadOnChange: false)
     .AddEnvironmentVariables();
 
-// 5. Masukkan User Secrets hanya jika berjalan di laptop lokal (Development)
+// 5. Masukkan User Secrets hanya jika berjalan di lingkungan laptop lokal (Development)
 if (envName.Equals("Development", StringComparison.OrdinalIgnoreCase))
 {
     builder.Configuration.AddUserSecrets(Assembly.GetExecutingAssembly(), optional: true);
@@ -39,7 +38,6 @@ if (envName.Equals("Development", StringComparison.OrdinalIgnoreCase))
 
 // ---- Logging -----------------------------------------------------------
 builder.ConfigureSerilog();
-// ... sisa kode di bawahnya (builder.Services.AddControllers, dst) tetap sama sampai bawah.
 
 // ---- Core services -------------------------------------------------------
 builder.Services.AddControllers()
@@ -71,6 +69,10 @@ builder.Services.AddAppAuthentication(builder.Configuration);
 builder.Services.AddAppSecurityServices();
 builder.Services.AddAccountingServices();
 builder.Services.AddJournalsServices();
+builder.Services.AddReportsServices();
+builder.Services.AddLedgerServices();
+builder.Services.AddSecurityFeatureServices();
+builder.Services.AddBankAccountServices();
 
 var app = builder.Build();
 
@@ -79,7 +81,7 @@ app.UseAppExceptionHandling();
 
 app.UseSerilogRequestLogging();
 
-// Hanya izinkan Swagger aktif saat ngoding lokal di laptop (Development)
+// Kunci Keamanan: Dokumentasi arsitektur API hanya diizinkan aktif di laptop lokal (Development)
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -97,6 +99,8 @@ app.UseRateLimiter();
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+app.UseAuditLogging();
 
 app.MapControllers();
 

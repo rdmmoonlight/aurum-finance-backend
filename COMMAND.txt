@@ -5,8 +5,13 @@ git add .
 git commit -m "Bismillah, fix atau update"
 git push origin main
 
+restore component:
+& "C:\Program Files\dotnet\dotnet.exe" restore
+
 run server:
 & "C:\Program Files\dotnet\dotnet.exe" run
 
 bersih2:
 & "C:\Program Files\dotnet\dotnet.exe" clean
+& "C:\Program Files\dotnet\dotnet.exe" nuget locals all --clear
+

@@ -4,7 +4,7 @@ using Aurum.Api.Features.Journals.Dtos;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using OkResult = Aurum.Api.Core.Shared.OkResult;
+using SharedOkResult = Aurum.Api.Core.Shared.OkResult;
 
 namespace Aurum.Api.Features.Journals;
 
@@ -54,9 +54,9 @@ public sealed class JournalEntriesController : ControllerBase
     }
 
     [HttpDelete("{groupId:guid}")]
-    public async Task<ActionResult<OkResult>> Remove(Guid groupId, CancellationToken ct)
+    public async Task<ActionResult<Aurum.Api.Core.Shared.OkResult>> Remove(Guid groupId, CancellationToken ct)
     {
         await _journalEntriesService.RemoveAsync(groupId, ct);
-        return Ok(new OkResult());
+        return Ok(new Aurum.Api.Core.Shared.OkResult());
     }
 }

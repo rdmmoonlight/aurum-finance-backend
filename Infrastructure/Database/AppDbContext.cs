@@ -1,6 +1,9 @@
 using Aurum.Api.Features.Accounting.Accounts.Entities;
 using Aurum.Api.Features.Accounting.Periods.Entities;
+using Aurum.Api.Features.BankAccount.Entities;
 using Aurum.Api.Features.Journals.Entities;
+using Aurum.Api.Features.Ledger.Configurations;
+using Aurum.Api.Features.Ledger.Views;
 using Aurum.Api.Features.Users.Entities;
 using Microsoft.EntityFrameworkCore;
 
@@ -36,6 +39,18 @@ public sealed class AppDbContext : DbContext
     // Journals feature — maps onto pre-existing journal_entries table, no schema change.
     public DbSet<JournalEntry> JournalEntries => Set<JournalEntry>();
 
+    // Ledger feature — read-only, maps onto pre-existing views.
+    public DbSet<TrialBalanceRow> TrialBalanceRows => Set<TrialBalanceRow>();
+
+    public DbSet<TrialBalancePostRow> TrialBalancePostRows => Set<TrialBalancePostRow>();
+
+    public DbSet<IncomeStatementRow> IncomeStatementRows => Set<IncomeStatementRow>();
+
+    // BankAccount feature — maps onto pre-existing bank_accounts/bank_transactions tables, no schema change.
+    public DbSet<LinkedBankAccount> LinkedBankAccounts => Set<LinkedBankAccount>();
+
+    public DbSet<BankTransaction> BankTransactions => Set<BankTransaction>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -46,6 +61,14 @@ public sealed class AppDbContext : DbContext
         modelBuilder.HasPostgresEnum<AccountRole>("account_role");
         modelBuilder.HasPostgresEnum<PeriodStatus>("period_status");
         modelBuilder.HasPostgresEnum<JournalKind>("journal_kind");
+        modelBuilder.HasPostgresEnum<BankProvider>("bank_provider");
+        modelBuilder.HasPostgresEnum<BankTransactionType>("bank_transaction_type");
+
+        // Read-only keyless entities mapped onto pre-existing views —
+        // configured explicitly (not auto-discovered like
+        // IEntityTypeConfiguration<T> below) since one static class configures
+        // all three related view entities together.
+        LedgerViewConfigurations.Configure(modelBuilder);
 
         // Apply entity configurations from this assembly as feature modules
         // add IEntityTypeConfiguration<T> classes alongside their entities.
