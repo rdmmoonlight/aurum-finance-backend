@@ -2,6 +2,7 @@ using System.Text.Json;
 using Aurum.Api.Core.Shared;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authorization.Policy;
+using Microsoft.AspNetCore.Http; // <-- DITAMBAHKAN (Mencegah CS0246 & CS1061)
 
 namespace Aurum.Api.Infrastructure.Security;
 

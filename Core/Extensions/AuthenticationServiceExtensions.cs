@@ -1,26 +1,19 @@
 using System.Text;
 using System.Text.Json;
 using Aurum.Api.Core.Shared;
-using Aurum.Api.Infrastructure.Security;
+using Aurum.Api.Infrastructure.Security; // <-- Mengimpor AuthSettings & AppAuthorizationMiddlewareResultHandler
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Policy;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Aurum.Api.Core.Extensions;
 
 public static class AuthenticationServiceExtensions
 {
-    /// <summary>
-    /// Registers JWT bearer authentication. The signing key is resolved, in
-    /// order of priority, from:
-    /// 1. The JWT_SIGNING_KEY environment variable (flat, same convention as
-    ///    DATABASE_URL — kept out of the Jwt__* nested env-var form since
-    ///    it's a secret most secret managers store as a single flat value).
-    /// 2. Jwt:SigningKey in configuration.
-    /// Issuer/Audience/AccessTokenExpiryMinutes use the standard ASP.NET
-    /// Core Jwt__Issuer / Jwt__Audience / Jwt__AccessTokenExpiryMinutes
-    /// environment-variable override convention (see RateLimiting for the
-    /// same pattern already in use).
-    /// </summary>
     public static IServiceCollection AddAppAuthentication(this IServiceCollection services, IConfiguration configuration)
     {
         var signingKey =
@@ -51,10 +44,6 @@ public static class AuthenticationServiceExtensions
             })
             .AddJwtBearer(options =>
             {
-                // Keep claim types exactly as issued ("sub", "email") rather
-                // than letting the handler remap them to the long
-                // ClaimTypes.* URIs — CurrentUserService reads the raw
-                // "sub"/"email" claim names issued by JwtTokenService.
                 options.MapInboundClaims = false;
 
                 options.TokenValidationParameters = new TokenValidationParameters
@@ -69,9 +58,6 @@ public static class AuthenticationServiceExtensions
                     ClockSkew = TimeSpan.FromSeconds(30),
                 };
 
-                // Route auth failures through the same ErrorResponse {error} shape
-                // as every other error in the API, instead of ASP.NET's
-                // default empty 401/challenge response.
                 options.Events = new JwtBearerEvents
                 {
                     OnChallenge = context =>
@@ -91,8 +77,9 @@ public static class AuthenticationServiceExtensions
             });
 
         services.AddAuthorization();
-        services.AddSingleton<Microsoft.AspNetCore.Authorization.Policy.IAuthorizationMiddlewareResultHandler, AppAuthorizationMiddlewareResultHandler>();
+        services.AddSingleton<IAuthorizationMiddlewareResultHandler, AppAuthorizationMiddlewareResultHandler>();
 
+        // Sekarang AuthSettings sudah terbaca dengan baik
         services.Configure<AuthSettings>(configuration.GetSection(AuthSettings.SectionName));
 
         return services;
