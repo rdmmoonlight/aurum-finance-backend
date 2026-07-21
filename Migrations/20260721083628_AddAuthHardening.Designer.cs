@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Aurum.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260721013245_AddAuthHardening")]
+    [Migration("20260721083628_AddAuthHardening")]
     partial class AddAuthHardening
     {
         /// <inheritdoc />
