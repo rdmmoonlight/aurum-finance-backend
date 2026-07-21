@@ -91,6 +91,9 @@ public static class AuthenticationServiceExtensions
             });
 
         services.AddAuthorization();
+        services.AddSingleton<Microsoft.AspNetCore.Authorization.Policy.IAuthorizationMiddlewareResultHandler, AppAuthorizationMiddlewareResultHandler>();
+
+        services.Configure<AuthSettings>(configuration.GetSection(AuthSettings.SectionName));
 
         return services;
     }

@@ -1,5 +1,6 @@
 using Aurum.Api.Features.Accounting.Accounts.Entities;
 using Aurum.Api.Features.Accounting.Periods.Entities;
+using Aurum.Api.Features.Authentication.Entities;
 using Aurum.Api.Features.BankAccount.Entities;
 using Aurum.Api.Features.Journals.Entities;
 using Aurum.Api.Features.Ledger.Configurations;
@@ -15,12 +16,22 @@ namespace Aurum.Api.Infrastructure.Database;
 /// persistence model (e.g. Users, Journals, Ledger entries).
 ///
 /// IMPORTANT: Accounts and Periods map onto tables that already existed
-/// before this API — see each entity's Configuration class. Only Users is a
-/// genuinely new table. Migrations generated from this context must not
-/// include CreateTable/AlterTable for "accounts" or "periods" — strip those
-/// operations out before applying if EF's migration scaffolding adds them
-/// (this can happen if a migration is generated before the model "knows"
-/// the tables already exist in a target database).
+/// before this API — see each entity's Configuration class. Migrations
+/// generated from this context must not include CreateTable/AlterTable for
+/// "accounts" or "periods" — strip those operations out before applying if
+/// EF's migration scaffolding adds them (this can happen if a migration is
+/// generated before the model "knows" the tables already exist in a target
+/// database).
+///
+/// "users" is a genuinely new table; the auth-hardening pass that added
+/// refresh tokens, password reset, and email verification introduced three
+/// more genuinely new tables (refresh_tokens, email_verification_tokens,
+/// password_reset_tokens) plus new nullable/defaulted columns on "users"
+/// (full_name replaces the old display_name, role, is_active,
+/// email_confirmed_at_utc, last_login_at_utc, failed_login_attempts,
+/// locked_until_utc). Run `dotnet ef migrations add AddAuthHardening` and
+/// review the generated migration before applying it against a database
+/// that already has an old "users" table with a "display_name" column.
 /// </summary>
 public sealed class AppDbContext : DbContext
 {
@@ -28,8 +39,14 @@ public sealed class AppDbContext : DbContext
     {
     }
 
-    // Authentication / Users feature — genuinely new table.
+    // Authentication / Users feature — genuinely new tables.
     public DbSet<User> Users => Set<User>();
+
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+
+    public DbSet<EmailVerificationToken> EmailVerificationTokens => Set<EmailVerificationToken>();
+
+    public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
 
     // Accounting feature — map onto pre-existing tables, no schema change.
     public DbSet<Account> Accounts => Set<Account>();

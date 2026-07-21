@@ -1,4 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using Aurum.Api.Core.Exceptions;
 
 namespace Aurum.Api.Infrastructure.Security;
@@ -33,4 +34,7 @@ public sealed class CurrentUserService : ICurrentUserService
 
     public string? Email =>
         _httpContextAccessor.HttpContext?.User.FindFirst(JwtRegisteredClaimNames.Email)?.Value;
+
+    public string? Role =>
+        _httpContextAccessor.HttpContext?.User.FindFirst(ClaimTypes.Role)?.Value;
 }

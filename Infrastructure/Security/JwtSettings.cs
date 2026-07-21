@@ -23,4 +23,7 @@ public sealed class JwtSettings
     public string SigningKey { get; set; } = string.Empty;
 
     public int AccessTokenExpiryMinutes { get; set; } = 60;
+
+    /// <summary>Lifetime of an issued refresh token. Consumed by IRefreshTokenService, not by JwtTokenService itself (refresh tokens are opaque, not JWTs).</summary>
+    public int RefreshTokenExpiryDays { get; set; } = 30;
 }

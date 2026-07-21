@@ -8,10 +8,12 @@ using Microsoft.IdentityModel.Tokens;
 namespace Aurum.Api.Infrastructure.Security;
 
 /// <summary>
-/// Issues HS256-signed JWTs carrying the user id ("sub") and email as
-/// claims. Validation of the same token happens in the JwtBearer handler
+/// Issues HS256-signed JWTs carrying the user id ("sub"), email, and role
+/// as claims. Validation of the same token happens in the JwtBearer handler
 /// registered by AuthenticationServiceExtensions.AddAppAuthentication —
-/// both sides read the same JwtSettings, so they always agree.
+/// both sides read the same JwtSettings, so they always agree. The role
+/// claim is emitted as the standard ClaimTypes.Role so ASP.NET's built-in
+/// [Authorize(Roles = "Admin")] attribute works with no extra wiring.
 /// </summary>
 public sealed class JwtTokenService : IJwtTokenService
 {
@@ -31,6 +33,7 @@ public sealed class JwtTokenService : IJwtTokenService
             new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new Claim(JwtRegisteredClaimNames.Email, user.Email),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new Claim(ClaimTypes.Role, user.Role.ToString()),
         };
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.SigningKey));

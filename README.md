@@ -76,7 +76,7 @@ Aurum.Api
 
 ## Requirements
 
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 - A PostgreSQL database (local Postgres for development, [Neon](https://neon.tech) in production)
 - Docker (optional locally, required for the Render deployment path)
 

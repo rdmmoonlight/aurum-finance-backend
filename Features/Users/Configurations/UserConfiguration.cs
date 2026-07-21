@@ -27,8 +27,24 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.PasswordHash)
             .IsRequired();
 
-        builder.Property(u => u.DisplayName)
+        builder.Property(u => u.FullName)
             .HasMaxLength(120);
+
+        // Stored as text, not a native Postgres enum — see UserRole's own
+        // doc comment for why.
+        builder.Property(u => u.Role)
+            .HasConversion<string>()
+            .HasMaxLength(20)
+            .HasDefaultValue(UserRole.User)
+            .IsRequired();
+
+        builder.Property(u => u.IsActive)
+            .HasDefaultValue(true)
+            .IsRequired();
+
+        builder.Property(u => u.FailedLoginAttempts)
+            .HasDefaultValue(0)
+            .IsRequired();
 
         builder.Property(u => u.CreatedAtUtc)
             .IsRequired();

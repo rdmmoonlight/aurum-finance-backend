@@ -20,5 +20,8 @@ public interface ICurrentUserService
 
     string? Email { get; }
 
+    /// <summary>The caller's role (e.g. "User", "Admin"), or null if unauthenticated. Prefer [Authorize(Roles = "Admin")] on controller actions over reading this directly where possible.</summary>
+    string? Role { get; }
+
     bool IsAuthenticated { get; }
 }
