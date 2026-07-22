@@ -1,11 +1,9 @@
 # Authentication
 
-Migrated from NestJS's `SupabaseAuthMiddleware`. That middleware only
-*verified* tokens Supabase had already issued; this feature now owns
-credential storage and token issuing directly (no more Supabase dependency
-for auth) — register/login/JWT generation, refresh tokens, password reset,
-email verification, and role-based authorization are all responsibilities
-this API now has that it didn't before.
+Owns credential storage and JWT issuing directly: register/login, refresh
+tokens, password reset, email verification, and role-based authorization.
+This is the only feature in the API today — see the root README for what
+else is planned.
 
 ## Implemented
 
@@ -50,41 +48,26 @@ this API now has that it didn't before.
   (`User` or `Admin`), stored as text (not a native Postgres enum, so
   adding it is a plain `ALTER TABLE ADD COLUMN`, no `CREATE TYPE`).
 
-## API contract compatibility
+## API contract
 
-Every response — success or error — is returned **flat, with no wrapper**,
-matching how the NestJS backend responded (a bare array/object on success,
-`{ "error": "message" }` on failure via its global `HttpExceptionFilter`).
-Failed `[Authorize(Roles = ...)]` checks are also routed through this same
-shape (HTTP 403) via `Infrastructure/Security/AppAuthorizationMiddlewareResultHandler.cs`,
+Every response — success or error — is returned **flat, with no wrapper**:
+a bare object on success, `{ "error": "message" }` on failure (see
+`Core/Middleware/ExceptionHandlingMiddleware.cs`). Failed
+`[Authorize(Roles = ...)]` checks are also routed through this same shape
+(HTTP 403) via
+`Infrastructure/Security/AppAuthorizationMiddlewareResultHandler.cs`,
 instead of ASP.NET's default empty 403 body.
-
-`AuthResponse` gained a `RefreshToken` field and `AuthenticatedUserDto`
-gained `Role` / `IsActive` / `EmailConfirmed` fields — both are additive,
-so a frontend that doesn't read the new fields yet keeps working unchanged.
-`AuthenticatedUserDto.DisplayName` and `RegisterRequest.DisplayName` were
-renamed to `FullName` to match the target schema — this **is** a breaking
-field-name change for any caller still sending/reading `displayName`.
 
 ## Database schema
 
-`users` gained new columns for this pass: `full_name` (renamed from
-`display_name`), `role`, `is_active`, `email_confirmed_at_utc`,
-`last_login_at_utc`, `failed_login_attempts`, `locked_until_utc`. Three new
-tables were added: `refresh_tokens`, `email_verification_tokens`,
-`password_reset_tokens` — each stores only a token hash, never the raw
-token. No existing table besides `users` is touched. Run
-`dotnet ef migrations add AddAuthHardening` and review the generated
-migration before applying it — see the doc comment on `AppDbContext` for
-specifics.
-
-To avoid a "big migration" of existing data: every other table
-(`accounts`, `periods`, `journal_entries`, `bank_accounts`,
-`bank_transactions`) stores a `user_id uuid` that was previously a Supabase
-auth user id. When backfilling the `users` table from existing Supabase
-accounts, **reuse the same UUIDs** as the new `users.id` (don't generate
-fresh ones) — that's what keeps every existing row in those tables joined
-correctly with zero changes to them.
+`users`, `refresh_tokens`, `email_verification_tokens`, and
+`password_reset_tokens` are the entire schema today, created by
+`dotnet ef database update` against a connection string set via the
+`DATABASE_URL` environment variable (see
+`Core/Extensions/DatabaseServiceExtensions.cs`). Never commit a real
+connection string or JWT signing key to source control; set both as
+environment variables (locally, in `.env`, or via `dotnet user-secrets`)
+instead.
 
 ## Email delivery
 
@@ -99,7 +82,6 @@ change.
 
 ## Not yet implemented
 
-- The Supabase → local `users` backfill script described above.
 - No admin-only endpoint exists yet to exercise `[Authorize(Roles = "Admin")]`
   end-to-end — the claim and the attribute both work, but nothing in this
   API currently requires the Admin role. Add `[Authorize(Roles = "Admin")]`
@@ -107,11 +89,9 @@ change.
 
 ## Configuration
 
-See `.env.example` at the repo root for `JWT_SIGNING_KEY` and the optional
-`JWT__ISSUER` / `JWT__AUDIENCE` / `JWT__ACCESSTOKENEXPIRYMINUTES` /
-`JWT__REFRESHTOKENEXPIRYDAYS` overrides, plus the new `Auth:*` section
-(`MaxFailedLoginAttempts`, `LockoutMinutes`,
-`EmailVerificationTokenExpiryHours`, `PasswordResetTokenExpiryMinutes`) in
-`appsettings.json`. `appsettings.Development.json` ships a dev-only signing
-key so `dotnet run` works without any setup — never reuse it outside local
-development.
+`appsettings.json`'s `Jwt:SigningKey` and `ConnectionStrings:DefaultConnection`
+are deliberately left empty — both must be supplied as environment
+variables (`JWT_SIGNING_KEY`, `DATABASE_URL`), never committed to source
+control. See `.env.example` at the repo root for every variable this
+feature reads, plus the `Jwt:*` / `Auth:*` sections in `appsettings.json`
+for the non-secret defaults (token lifetimes, lockout thresholds).

@@ -35,11 +35,9 @@ public interface IAuthService
 }
 
 /// <summary>
-/// Owns credential storage and token issuing directly — the successor to
-/// NestJS's SupabaseAuthMiddleware, which only verified tokens Supabase had
-/// already issued. Register/Login/JWT generation, refresh-token rotation,
-/// password reset, email verification, and account lockout are all
-/// responsibilities this API now has that it didn't before.
+/// Owns credential storage and token issuing directly: register/login,
+/// JWT generation, refresh-token rotation, password reset, email
+/// verification, and account lockout.
 /// </summary>
 public sealed class AuthService : IAuthService
 {

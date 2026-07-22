@@ -7,13 +7,9 @@ namespace Aurum.Api.Core.Middleware;
 
 /// <summary>
 /// Catches every unhandled exception in the request pipeline and converts it
-/// into a JSON payload shaped exactly like the previous NestJS backend's
-/// global HttpExceptionFilter: <c>{ "error": "&lt;message&gt;" }</c>. This is
-/// a deliberate compatibility choice — the Next.js frontend's fetch call
-/// sites already read <c>err?.error</c>, and keeping this shape means they
-/// don't need to change when the frontend is pointed at this API instead of
-/// the NestJS one. Do not switch this to ASP.NET's richer ProblemDetails or
-/// a custom envelope without updating every frontend call site first.
+/// into a flat JSON payload: <c>{ "error": "&lt;message&gt;" }</c>. Every
+/// error response in this API uses this same shape — see
+/// Core/Shared/ErrorResponse.cs.
 /// </summary>
 public sealed class ExceptionHandlingMiddleware
 {
@@ -54,8 +50,7 @@ public sealed class ExceptionHandlingMiddleware
 
         var (statusCode, message) = exception switch
         {
-            // Mirrors Nest's ValidationPipe behavior of joining every
-            // field-level validation message into a single sentence.
+            // Joins every field-level validation message into a single sentence.
             ValidationAppException validationEx => (
                 (int)validationEx.StatusCode,
                 string.Join("; ", validationEx.Errors.SelectMany(e => e.Value))),

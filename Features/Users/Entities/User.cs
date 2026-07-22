@@ -1,10 +1,6 @@
 namespace Aurum.Api.Features.Users.Entities;
 
-/// <summary>
-/// A registered account. Replaces Supabase's user record — with the
-/// migration to a custom JWT service, this API now owns credential storage
-/// directly instead of delegating identity to Supabase.
-/// </summary>
+/// <summary>A registered account, with its own locally-owned credentials (see the Authentication feature).</summary>
 public sealed class User
 {
     public Guid Id { get; set; } = Guid.NewGuid();

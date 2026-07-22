@@ -1,8 +1,4 @@
 using Aurum.Api.Core.Utilities;
-using Aurum.Api.Features.Accounting.Accounts.Entities;
-using Aurum.Api.Features.Accounting.Periods.Entities;
-using Aurum.Api.Features.BankAccount.Entities;
-using Aurum.Api.Features.Journals.Entities;
 using Aurum.Api.Infrastructure.Database;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -17,11 +13,10 @@ public static class DatabaseServiceExtensions
     /// 1. The DATABASE_URL environment variable (Render/Neon convention)
     /// 2. ConnectionStrings:DefaultConnection in configuration
     ///
-    /// Built via NpgsqlDataSourceBuilder (rather than a plain connection
-    /// string passed to UseNpgsql) so the native Postgres enum types created
-    /// by the original Drizzle schema map directly onto C# enums instead of
-    /// EF Core/Npgsql seeing them as opaque/unknown types. Add one MapEnum
-    /// call here for every enum-backed entity as more features are migrated.
+    /// Built via NpgsqlDataSourceBuilder so future enum-backed entities can
+    /// register a native Postgres enum mapping here (dataSourceBuilder.MapEnum)
+    /// alongside the matching modelBuilder.HasPostgresEnum call in
+    /// AppDbContext.OnModelCreating.
     /// </summary>
     public static IServiceCollection AddAppDatabase(this IServiceCollection services, IConfiguration configuration)
     {
@@ -35,11 +30,6 @@ public static class DatabaseServiceExtensions
         var connectionString = ConnectionStringHelper.NormalizeToNpgsqlFormat(rawConnectionString);
 
         var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
-        dataSourceBuilder.MapEnum<AccountRole>("account_role");
-        dataSourceBuilder.MapEnum<PeriodStatus>("period_status");
-        dataSourceBuilder.MapEnum<JournalKind>("journal_kind");
-        dataSourceBuilder.MapEnum<BankProvider>("bank_provider");
-        dataSourceBuilder.MapEnum<BankTransactionType>("bank_transaction_type");
         var dataSource = dataSourceBuilder.Build();
 
         services.AddSingleton(dataSource);

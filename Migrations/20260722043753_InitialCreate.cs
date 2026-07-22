@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -6,19 +6,11 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Aurum.Api.Migrations
 {
     /// <inheritdoc />
-    public partial class AddAuthHardening : Migration
+    public partial class InitialCreate : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            // NOTE: the auto-generated version of this migration also
-            // included AlterDatabase() (re-declaring enum types that
-            // already exist) and CreateTable/CreateIndex for "accounts",
-            // "bank_accounts", "bank_transactions", "periods", and
-            // "journal_entries" — all five already exist in the database
-            // from before this project used EF migrations. Those blocks
-            // were removed by hand; only the tables this feature actually
-            // adds remain below.
             migrationBuilder.CreateTable(
                 name: "email_verification_tokens",
                 columns: table => new

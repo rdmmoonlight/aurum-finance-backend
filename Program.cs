@@ -19,7 +19,6 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     EnvironmentName = envName
 });
 
-// MEMATIKAN INOTIFY SECARA TOTAL
 builder.Configuration.Sources.Clear();
 
 builder.Configuration
@@ -27,13 +26,13 @@ builder.Configuration
     .AddJsonFile($"appsettings.{envName}.json", optional: true, reloadOnChange: false)
     .AddEnvironmentVariables();
 
-// 5. Masukkan User Secrets hanya saat Anda ngoding di laptop (Development)
+// Load User Secrets only when running locally in Development.
 if (envName.Equals("Development", StringComparison.OrdinalIgnoreCase))
 {
     builder.Configuration.AddUserSecrets(Assembly.GetExecutingAssembly(), optional: true);
 }
 
-// 6. AMANKAN PORT: Baca variabel PORT bawaan Render, jika tidak ada pakai 8080 (Bebas dari eror kurung siku!)
+// Render (and similar platforms) provide the port to bind via $PORT.
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
 builder.WebHost.ConfigureKestrel(options =>
 {
@@ -42,16 +41,9 @@ builder.WebHost.ConfigureKestrel(options =>
 
 // ---- Logging -----------------------------------------------------------
 builder.ConfigureSerilog();
-// ... (Sisa kode ke bawahnya biarkan tetap seperti semula)
 
 // ---- Core services -------------------------------------------------------
-builder.Services.AddControllers()
-    .AddJsonOptions(options =>
-    {
-        // Lets Update*Request DTOs use Optional<T> to distinguish "field
-        // omitted" from "field explicitly null" — see Core/Shared/Optional.cs.
-        options.JsonSerializerOptions.Converters.Add(new Aurum.Api.Core.Serialization.OptionalJsonConverterFactory());
-    });
+builder.Services.AddControllers();
 builder.Services.AddValidatorsFromAssembly(Assembly.GetExecutingAssembly());
 
 // All request validation is funneled through FluentValidation +
@@ -72,12 +64,6 @@ builder.Services.AddAppDatabase(builder.Configuration);
 builder.Services.AddAppHealthChecks(builder.Configuration);
 builder.Services.AddAppAuthentication(builder.Configuration);
 builder.Services.AddAppSecurityServices();
-builder.Services.AddAccountingServices();
-builder.Services.AddJournalsServices();
-builder.Services.AddReportsServices();
-builder.Services.AddLedgerServices();
-builder.Services.AddSecurityFeatureServices();
-builder.Services.AddBankAccountServices();
 
 var app = builder.Build();
 
@@ -86,7 +72,7 @@ app.UseAppExceptionHandling();
 
 app.UseSerilogRequestLogging();
 
-// Kunci Keamanan: Dokumentasi arsitektur API hanya diizinkan aktif di laptop lokal (Development)
+// Swagger is only exposed locally, never in production.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -104,8 +90,6 @@ app.UseRateLimiter();
 
 app.UseAuthentication();
 app.UseAuthorization();
-
-app.UseAuditLogging();
 
 app.MapControllers();
 

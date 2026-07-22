@@ -3,9 +3,7 @@ namespace Aurum.Api.Infrastructure.Security;
 /// <summary>
 /// Reads the acting user out of the current HTTP request's validated JWT
 /// claims. Every feature resolves "who is making this call" through this
-/// single service — mirrors how the previous NestJS backend's
-/// common/current-user.ts::getCurrentUserId() was the one place every
-/// service read the authenticated user from.
+/// single service.
 /// </summary>
 public interface ICurrentUserService
 {

@@ -8,11 +8,9 @@ using Microsoft.AspNetCore.Mvc;
 namespace Aurum.Api.Features.Authentication;
 
 /// <summary>
-/// New endpoints — the previous NestJS backend had no /auth routes at all
-/// (Supabase handled login/register directly from the frontend). There is
-/// no prior contract to mirror here, but responses are still returned raw
-/// (no envelope), matching the flat-JSON convention every other endpoint in
-/// this API uses for Nest-Compatibility.
+/// Every response is returned raw — no envelope — matching the flat-JSON
+/// convention used across this API (see
+/// Core/Middleware/ExceptionHandlingMiddleware.cs for the error shape).
 /// </summary>
 [ApiController]
 [Route("api/auth")]
