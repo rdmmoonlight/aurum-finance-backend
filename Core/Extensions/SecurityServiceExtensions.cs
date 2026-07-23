@@ -14,7 +14,7 @@ public static class SecurityServiceExtensions
     /// password hashing, JWT issuing, refresh-token rotation, current-user
     /// resolution, and email delivery for verification/reset links.
     /// </summary>
-    public static IServiceCollection AddAppSecurityServices(this IServiceCollection services)
+    public static IServiceCollection AddAppSecurityServices(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddHttpContextAccessor();
 
@@ -24,9 +24,11 @@ public static class SecurityServiceExtensions
         services.AddScoped<ICurrentUserService, CurrentUserService>();
         services.AddScoped<IAuthService, AuthService>();
 
-        // Swap this registration for a real provider when one is chosen —
-        // see LoggingEmailSender's doc comment.
-        services.AddScoped<IEmailSender, LoggingEmailSender>();
+        // 1. Bind konfigurasi Smtp dari appsettings.json
+        services.Configure<SmtpOptions>(configuration.GetSection(SmtpOptions.SectionName));
+
+        // 2. Ganti LoggingEmailSender dengan SmtpEmailSender
+        services.AddScoped<IEmailSender, SmtpEmailSender>();
 
         return services;
     }

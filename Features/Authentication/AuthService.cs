@@ -7,6 +7,7 @@ using Aurum.Api.Infrastructure.Email;
 using Aurum.Api.Infrastructure.Security;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 
 namespace Aurum.Api.Features.Authentication;
@@ -46,6 +47,7 @@ public sealed class AuthService : IAuthService
     private readonly IJwtTokenService _jwtTokenService;
     private readonly IRefreshTokenService _refreshTokenService;
     private readonly IEmailSender _emailSender;
+    private readonly IConfiguration _configuration;
     private readonly AuthSettings _authSettings;
 
     public AuthService(
@@ -54,6 +56,7 @@ public sealed class AuthService : IAuthService
         IJwtTokenService jwtTokenService,
         IRefreshTokenService refreshTokenService,
         IEmailSender emailSender,
+        IConfiguration configuration,
         IOptions<AuthSettings> authSettings)
     {
         _db = db;
@@ -61,6 +64,7 @@ public sealed class AuthService : IAuthService
         _jwtTokenService = jwtTokenService;
         _refreshTokenService = refreshTokenService;
         _emailSender = emailSender;
+        _configuration = configuration;
         _authSettings = authSettings.Value;
     }
 
@@ -197,11 +201,28 @@ public sealed class AuthService : IAuthService
         });
         await _db.SaveChangesAsync(ct);
 
+        var clientBaseUrl = _configuration["ClientApp:BaseUrl"] ?? "https://localhost:7001";
+        var resetLink = $"{clientBaseUrl.TrimEnd('/')}/Auth/ResetPassword?token={Uri.EscapeDataString(rawToken)}";
+
+        var htmlBody = $@"
+            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;'>
+                <h2 style='color: #1a252f; text-align: center;'>Reset Password Aurum Finance</h2>
+                <p>Halo,</p>
+                <p>Kami menerima permintaan untuk mereset password akun Anda. Silakan klik tombol di bawah ini untuk membuat password baru:</p>
+                <div style='text-align: center; margin: 30px 0;'>
+                    <a href='{resetLink}' style='background-color: #dc2626; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;'>
+                        Reset Password Saya
+                    </a>
+                </div>
+                <p style='color: #666666; font-size: 14px;'>Atau salin tautan berikut ke browser Anda:</p>
+                <p style='font-size: 13px; word-break: break-all;'><a href='{resetLink}' style='color: #dc2626;'>{resetLink}</a></p>
+                <p style='color: #999999; font-size: 12px;'>Tautan ini berlaku selama {_authSettings.PasswordResetTokenExpiryMinutes} menit. Jika Anda tidak meminta reset password, abaikan email ini.</p>
+            </div>";
+
         await _emailSender.SendAsync(
             user.Email,
             "Reset your Aurum password",
-            $"<p>Use this token to reset your password: <strong>{rawToken}</strong></p>" +
-            $"<p>This token expires in {_authSettings.PasswordResetTokenExpiryMinutes} minutes. If you didn't request this, ignore this email.</p>",
+            htmlBody,
             ct);
     }
 
@@ -277,11 +298,29 @@ public sealed class AuthService : IAuthService
         });
         await _db.SaveChangesAsync(ct);
 
+        var clientBaseUrl = _configuration["ClientApp:BaseUrl"] ?? "https://localhost:7001";
+        var verificationLink = $"{clientBaseUrl.TrimEnd('/')}/Auth/VerifyEmail?token={Uri.EscapeDataString(rawToken)}";
+
+        var htmlBody = $@"
+            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;'>
+                <h2 style='color: #1a252f; text-align: center;'>Selamat Datang di Aurum Finance!</h2>
+                <p>Halo,</p>
+                <p>Terima kasih telah mendaftar. Silakan klik tombol di bawah ini untuk memverifikasi alamat email Anda dan mengaktifkan akun:</p>
+                <div style='text-align: center; margin: 30px 0;'>
+                    <a href='{verificationLink}' style='background-color: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;'>
+                        Verifikasi Email Saya
+                    </a>
+                </div>
+                <p style='color: #666666; font-size: 14px;'>Atau salin dan tempel tautan berikut di browser Anda:</p>
+                <p style='font-size: 13px; word-break: break-all;'><a href='{verificationLink}' style='color: #2563eb;'>{verificationLink}</a></p>
+                <hr style='border: none; border-top: 1px solid #eeeeee; margin: 20px 0;' />
+                <p style='color: #999999; font-size: 12px; text-align: center;'>Tautan ini berlaku selama {_authSettings.EmailVerificationTokenExpiryHours} jam. Jika Anda tidak mendaftar di Aurum Finance, abaikan email ini.</p>
+            </div>";
+
         await _emailSender.SendAsync(
             user.Email,
             "Verify your Aurum email address",
-            $"<p>Use this token to verify your email: <strong>{rawToken}</strong></p>" +
-            $"<p>This token expires in {_authSettings.EmailVerificationTokenExpiryHours} hours.</p>",
+            htmlBody,
             ct);
     }
 

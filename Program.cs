@@ -63,7 +63,9 @@ builder.Services.AddAppRateLimiting(builder.Configuration);
 builder.Services.AddAppDatabase(builder.Configuration);
 builder.Services.AddAppHealthChecks(builder.Configuration);
 builder.Services.AddAppAuthentication(builder.Configuration);
-builder.Services.AddAppSecurityServices();
+
+// Pass builder.Configuration agar SmtpOptions bisa terbaca dari appsettings.json
+builder.Services.AddAppSecurityServices(builder.Configuration);
 
 var app = builder.Build();
 
