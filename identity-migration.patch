@@ -1,0 +1,2601 @@
+diff --git a/.env.example b/.env.example
+index a425688..aaa50bc 100644
+--- a/.env.example
++++ b/.env.example
+@@ -7,20 +7,11 @@
+ # see Core/Extensions/DatabaseServiceExtensions.cs.
+ DATABASE_URL=postgresql://user:password@host/db?sslmode=require
+ 
+-# Required. At least 32 bytes of random data — e.g. `openssl rand -base64 32`.
+-JWT_SIGNING_KEY=replace-with-a-long-random-secret-at-least-32-bytes
+-
+-# Optional overrides (standard ASP.NET Core Section__Key convention)
+-JWT__ISSUER=Aurum.Api
+-JWT__AUDIENCE=Aurum.Client
+-JWT__ACCESSTOKENEXPIRYMINUTES=60
+-JWT__REFRESHTOKENEXPIRYDAYS=30
+-
+-# Account lockout + one-time-token lifetimes (Authentication feature).
+-AUTH__MAXFAILEDLOGINATTEMPTS=5
+-AUTH__LOCKOUTMINUTES=15
+-AUTH__EMAILVERIFICATIONTOKENEXPIRYHOURS=24
+-AUTH__PASSWORDRESETTOKENEXPIRYMINUTES=60
++# No JWT signing key or custom Auth section is needed — authentication is
++# fully owned by ASP.NET Core Identity (AddIdentityApiEndpoints), which
++# issues and validates its own bearer tokens. Lockout and password/email
++# token policy are configured in code, in
++# Core/Extensions/SecurityServiceExtensions.cs.
+ 
+ # Comma-separated list of origins allowed to call this API from a browser
+ # (see Core/Extensions/CorsServiceExtensions.cs). Leave unset in local dev
+diff --git a/Aurum.Api.csproj b/Aurum.Api.csproj
+index 740a58a..19366b7 100644
+--- a/Aurum.Api.csproj
++++ b/Aurum.Api.csproj
+@@ -41,8 +41,8 @@
+     <PackageReference Include="AspNetCore.HealthChecks.NpgSql" Version="9.0.0" />
+     <PackageReference Include="AspNetCore.HealthChecks.UI.Client" Version="9.0.0" />
+ 
+-    <!-- Authentication (JWT bearer) -->
+-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
++    <!-- Authentication & user storage (ASP.NET Core Identity) -->
++    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.0-preview.1.25081.1" />
+   </ItemGroup>
+ 
+ </Project>
+\ No newline at end of file
+diff --git a/Core/Extensions/AuthenticationServiceExtensions.cs b/Core/Extensions/AuthenticationServiceExtensions.cs
+index 51cb009..b6684bb 100644
+--- a/Core/Extensions/AuthenticationServiceExtensions.cs
++++ b/Core/Extensions/AuthenticationServiceExtensions.cs
+@@ -1,87 +1,46 @@
+-using System.Text;
+-using System.Text.Json;
+ using Aurum.Api.Core.Shared;
+-using Aurum.Api.Infrastructure.Security; // <-- Mengimpor AuthSettings & AppAuthorizationMiddlewareResultHandler
+-using Microsoft.AspNetCore.Authentication.JwtBearer;
++using Aurum.Api.Infrastructure.Security;
++using Aurum.Api.Features.Users.Entities;
++using Microsoft.AspNetCore.Authentication.BearerToken;
+ using Microsoft.AspNetCore.Authorization;
+-using Microsoft.AspNetCore.Authorization.Policy;
+ using Microsoft.AspNetCore.Http;
++using Microsoft.AspNetCore.Identity;
+ using Microsoft.Extensions.Configuration;
+ using Microsoft.Extensions.DependencyInjection;
+-using Microsoft.IdentityModel.Tokens;
++using System.Text.Json;
+ 
+ namespace Aurum.Api.Core.Extensions;
+ 
+ public static class AuthenticationServiceExtensions
+ {
++    /// <summary>
++    /// Wires ASP.NET Core Identity's own bearer-token authentication
++    /// scheme (registered by AddIdentityApiEndpoints in
++    /// SecurityServiceExtensions). There is no custom JWT issuing or
++    /// validation left in the codebase — Identity owns the entire token
++    /// lifecycle for login, refresh, and revocation.
++    /// </summary>
+     public static IServiceCollection AddAppAuthentication(this IServiceCollection services, IConfiguration configuration)
+     {
+-        var signingKey =
+-            Environment.GetEnvironmentVariable("JWT_SIGNING_KEY")
+-            ?? configuration["Jwt:SigningKey"];
+-
+-        if (string.IsNullOrWhiteSpace(signingKey))
++        services.Configure<BearerTokenOptions>(IdentityConstants.BearerScheme, options =>
+         {
+-            throw new InvalidOperationException(
+-                "No JWT signing key configured. Set the JWT_SIGNING_KEY environment variable " +
+-                "or Jwt:SigningKey in configuration.");
+-        }
+-
+-        services.Configure<JwtSettings>(options =>
+-        {
+-            configuration.GetSection(JwtSettings.SectionName).Bind(options);
+-            options.SigningKey = signingKey;
+-        });
+-
+-        var issuer = configuration["Jwt:Issuer"] ?? "Aurum.Api";
+-        var audience = configuration["Jwt:Audience"] ?? "Aurum.Client";
+-
+-        services
+-            .AddAuthentication(options =>
+-            {
+-                options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+-                options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+-            })
+-            .AddJwtBearer(options =>
++            options.Events.OnRejected = context =>
+             {
+-                options.MapInboundClaims = false;
+-
+-                options.TokenValidationParameters = new TokenValidationParameters
+-                {
+-                    ValidateIssuer = true,
+-                    ValidIssuer = issuer,
+-                    ValidateAudience = true,
+-                    ValidAudience = audience,
+-                    ValidateIssuerSigningKey = true,
+-                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey)),
+-                    ValidateLifetime = true,
+-                    ClockSkew = TimeSpan.FromSeconds(30),
+-                };
++                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
++                context.Response.ContentType = "application/json";
+ 
+-                options.Events = new JwtBearerEvents
++                var body = JsonSerializer.Serialize(new ErrorResponse
+                 {
+-                    OnChallenge = context =>
+-                    {
+-                        context.HandleResponse();
+-                        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+-                        context.Response.ContentType = "application/json";
++                    Error = "Authentication is required or the token is invalid.",
++                });
+ 
+-                        var body = JsonSerializer.Serialize(new ErrorResponse
+-                        {
+-                            Error = "Authentication is required or the token is invalid.",
+-                        });
+-
+-                        return context.Response.WriteAsync(body);
+-                    },
+-                };
+-            });
++                return context.Response.WriteAsync(body);
++            };
++        });
+ 
+         services.AddAuthorization();
+         services.AddSingleton<IAuthorizationMiddlewareResultHandler, AppAuthorizationMiddlewareResultHandler>();
+ 
+-        // Sekarang AuthSettings sudah terbaca dengan baik
+-        services.Configure<AuthSettings>(configuration.GetSection(AuthSettings.SectionName));
+-
+         return services;
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/Core/Extensions/SecurityServiceExtensions.cs b/Core/Extensions/SecurityServiceExtensions.cs
+index e468f99..b66d5af 100644
+--- a/Core/Extensions/SecurityServiceExtensions.cs
++++ b/Core/Extensions/SecurityServiceExtensions.cs
+@@ -1,5 +1,5 @@
+-using Aurum.Api.Features.Authentication;
+ using Aurum.Api.Features.Users.Entities;
++using Aurum.Api.Infrastructure.Database;
+ using Aurum.Api.Infrastructure.Email;
+ using Aurum.Api.Infrastructure.Security;
+ using Microsoft.AspNetCore.Identity;
+@@ -9,24 +9,36 @@ namespace Aurum.Api.Core.Extensions;
+ public static class SecurityServiceExtensions
+ {
+     /// <summary>
+-    /// Registers the building blocks the Authentication feature (and every
+-    /// later feature that needs to know "who is calling") depends on:
+-    /// password hashing, JWT issuing, refresh-token rotation, current-user
+-    /// resolution, and email delivery for verification/reset links.
++    /// Registers ASP.NET Core Identity itself — the single source of
++    /// truth for credential storage, password hashing, lockout, roles,
++    /// and account-management tokens (email confirmation, password
++    /// reset) — plus the current-user resolver and the email transport
++    /// Identity sends its own emails through.
+     /// </summary>
+     public static IServiceCollection AddAppSecurityServices(this IServiceCollection services)
+     {
+         services.AddHttpContextAccessor();
+ 
+-        services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
+-        services.AddScoped<IJwtTokenService, JwtTokenService>();
+-        services.AddScoped<IRefreshTokenService, RefreshTokenService>();
++        services
++            .AddIdentityApiEndpoints<ApplicationUser>(options =>
++            {
++                options.SignIn.RequireConfirmedEmail = true;
++                options.User.RequireUniqueEmail = true;
++                options.Password.RequiredLength = 8;
++                options.Lockout.MaxFailedAccessAttempts = 5;
++                options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
++            })
++            .AddRoles<IdentityRole<Guid>>()
++            .AddEntityFrameworkStores<AppDbContext>()
++            .AddDefaultTokenProviders();
++
+         services.AddScoped<ICurrentUserService, CurrentUserService>();
+-        services.AddScoped<IAuthService, AuthService>();
+ 
+         // Swap this registration for a real provider when one is chosen —
+-        // see LoggingEmailSender's doc comment.
++        // see LoggingEmailSender's doc comment. IdentityEmailSender adapts
++        // it onto the contract Identity's own endpoints call directly.
+         services.AddScoped<IEmailSender, LoggingEmailSender>();
++        services.AddScoped<Microsoft.AspNetCore.Identity.IEmailSender<ApplicationUser>, IdentityEmailSender>();
+ 
+         return services;
+     }
+diff --git a/Features/Authentication/AuthController.cs b/Features/Authentication/AuthController.cs
+deleted file mode 100644
+index d974d44..0000000
+--- a/Features/Authentication/AuthController.cs
++++ /dev/null
+@@ -1,137 +0,0 @@
+-using Aurum.Api.Core.Extensions;
+-using Aurum.Api.Features.Authentication.Dtos;
+-using Aurum.Api.Infrastructure.Security;
+-using FluentValidation;
+-using Microsoft.AspNetCore.Authorization;
+-using Microsoft.AspNetCore.Mvc;
+-
+-namespace Aurum.Api.Features.Authentication;
+-
+-/// <summary>
+-/// Every response is returned raw — no envelope — matching the flat-JSON
+-/// convention used across this API (see
+-/// Core/Middleware/ExceptionHandlingMiddleware.cs for the error shape).
+-/// </summary>
+-[ApiController]
+-[Route("api/auth")]
+-public sealed class AuthController : ControllerBase
+-{
+-    private readonly IAuthService _authService;
+-    private readonly IValidator<RegisterRequest> _registerValidator;
+-    private readonly IValidator<LoginRequest> _loginValidator;
+-    private readonly IValidator<RefreshTokenRequest> _refreshTokenValidator;
+-    private readonly IValidator<ForgotPasswordRequest> _forgotPasswordValidator;
+-    private readonly IValidator<ResetPasswordRequest> _resetPasswordValidator;
+-    private readonly IValidator<VerifyEmailRequest> _verifyEmailValidator;
+-    private readonly IValidator<ResendVerificationRequest> _resendVerificationValidator;
+-    private readonly ICurrentUserService _currentUser;
+-
+-    public AuthController(
+-        IAuthService authService,
+-        IValidator<RegisterRequest> registerValidator,
+-        IValidator<LoginRequest> loginValidator,
+-        IValidator<RefreshTokenRequest> refreshTokenValidator,
+-        IValidator<ForgotPasswordRequest> forgotPasswordValidator,
+-        IValidator<ResetPasswordRequest> resetPasswordValidator,
+-        IValidator<VerifyEmailRequest> verifyEmailValidator,
+-        IValidator<ResendVerificationRequest> resendVerificationValidator,
+-        ICurrentUserService currentUser)
+-    {
+-        _authService = authService;
+-        _registerValidator = registerValidator;
+-        _loginValidator = loginValidator;
+-        _refreshTokenValidator = refreshTokenValidator;
+-        _forgotPasswordValidator = forgotPasswordValidator;
+-        _resetPasswordValidator = resetPasswordValidator;
+-        _verifyEmailValidator = verifyEmailValidator;
+-        _resendVerificationValidator = resendVerificationValidator;
+-        _currentUser = currentUser;
+-    }
+-
+-    [HttpPost("register")]
+-    [AllowAnonymous]
+-    public async Task<ActionResult<AuthResponse>> Register([FromBody] RegisterRequest request, CancellationToken ct)
+-    {
+-        await _registerValidator.ValidateAndThrowAppExceptionAsync(request, ct);
+-        var result = await _authService.RegisterAsync(request, ClientIp, ct);
+-        return StatusCode(StatusCodes.Status201Created, result);
+-    }
+-
+-    [HttpPost("login")]
+-    [AllowAnonymous]
+-    public async Task<ActionResult<AuthResponse>> Login([FromBody] LoginRequest request, CancellationToken ct)
+-    {
+-        await _loginValidator.ValidateAndThrowAppExceptionAsync(request, ct);
+-        var result = await _authService.LoginAsync(request, ClientIp, ct);
+-        return Ok(result);
+-    }
+-
+-    /// <summary>Exchanges a still-valid refresh token for a new access token, rotating the refresh token in the same call.</summary>
+-    [HttpPost("refresh")]
+-    [AllowAnonymous]
+-    public async Task<ActionResult<AuthResponse>> Refresh([FromBody] RefreshTokenRequest request, CancellationToken ct)
+-    {
+-        await _refreshTokenValidator.ValidateAndThrowAppExceptionAsync(request, ct);
+-        var result = await _authService.RefreshAsync(request.RefreshToken, ClientIp, ct);
+-        return Ok(result);
+-    }
+-
+-    /// <summary>Revokes a single refresh token, ending that session. Client is expected to discard both tokens locally afterward.</summary>
+-    [HttpPost("logout")]
+-    [AllowAnonymous]
+-    public async Task<IActionResult> Logout([FromBody] RefreshTokenRequest request, CancellationToken ct)
+-    {
+-        await _refreshTokenValidator.ValidateAndThrowAppExceptionAsync(request, ct);
+-        await _authService.LogoutAsync(request.RefreshToken, ClientIp, ct);
+-        return NoContent();
+-    }
+-
+-    /// <summary>Returns the caller's own profile — proves the bearer token round-trips end to end.</summary>
+-    [HttpGet("me")]
+-    [Authorize]
+-    public async Task<ActionResult<AuthenticatedUserDto>> Me(CancellationToken ct)
+-    {
+-        var user = await _authService.GetCurrentUserAsync(_currentUser.UserId, ct);
+-        return Ok(user);
+-    }
+-
+-    /// <summary>Always returns 204, whether or not the email is registered — never reveals account existence.</summary>
+-    [HttpPost("forgot-password")]
+-    [AllowAnonymous]
+-    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request, CancellationToken ct)
+-    {
+-        await _forgotPasswordValidator.ValidateAndThrowAppExceptionAsync(request, ct);
+-        await _authService.ForgotPasswordAsync(request, ct);
+-        return NoContent();
+-    }
+-
+-    [HttpPost("reset-password")]
+-    [AllowAnonymous]
+-    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request, CancellationToken ct)
+-    {
+-        await _resetPasswordValidator.ValidateAndThrowAppExceptionAsync(request, ct);
+-        await _authService.ResetPasswordAsync(request, ct);
+-        return NoContent();
+-    }
+-
+-    [HttpPost("verify-email")]
+-    [AllowAnonymous]
+-    public async Task<IActionResult> VerifyEmail([FromBody] VerifyEmailRequest request, CancellationToken ct)
+-    {
+-        await _verifyEmailValidator.ValidateAndThrowAppExceptionAsync(request, ct);
+-        await _authService.VerifyEmailAsync(request, ct);
+-        return NoContent();
+-    }
+-
+-    /// <summary>Always returns 204, whether or not the email is registered or already verified — never reveals account state.</summary>
+-    [HttpPost("resend-verification")]
+-    [AllowAnonymous]
+-    public async Task<IActionResult> ResendVerification([FromBody] ResendVerificationRequest request, CancellationToken ct)
+-    {
+-        await _resendVerificationValidator.ValidateAndThrowAppExceptionAsync(request, ct);
+-        await _authService.ResendVerificationAsync(request, ct);
+-        return NoContent();
+-    }
+-
+-    private string? ClientIp => HttpContext.Connection.RemoteIpAddress?.ToString();
+-}
+diff --git a/Features/Authentication/AuthService.cs b/Features/Authentication/AuthService.cs
+deleted file mode 100644
+index 9979647..0000000
+--- a/Features/Authentication/AuthService.cs
++++ /dev/null
+@@ -1,313 +0,0 @@
+-using Aurum.Api.Core.Exceptions;
+-using Aurum.Api.Features.Authentication.Dtos;
+-using Aurum.Api.Features.Authentication.Entities;
+-using Aurum.Api.Features.Users.Entities;
+-using Aurum.Api.Infrastructure.Database;
+-using Aurum.Api.Infrastructure.Email;
+-using Aurum.Api.Infrastructure.Security;
+-using Microsoft.AspNetCore.Identity;
+-using Microsoft.EntityFrameworkCore;
+-using Microsoft.Extensions.Options;
+-
+-namespace Aurum.Api.Features.Authentication;
+-
+-public interface IAuthService
+-{
+-    Task<AuthResponse> RegisterAsync(RegisterRequest request, string? ip, CancellationToken ct = default);
+-
+-    Task<AuthResponse> LoginAsync(LoginRequest request, string? ip, CancellationToken ct = default);
+-
+-    Task<AuthResponse> RefreshAsync(string rawRefreshToken, string? ip, CancellationToken ct = default);
+-
+-    Task LogoutAsync(string rawRefreshToken, string? ip, CancellationToken ct = default);
+-
+-    Task<AuthenticatedUserDto> GetCurrentUserAsync(Guid userId, CancellationToken ct = default);
+-
+-    /// <summary>Always succeeds from the caller's point of view, whether or not the email is registered — never reveals account existence.</summary>
+-    Task ForgotPasswordAsync(ForgotPasswordRequest request, CancellationToken ct = default);
+-
+-    Task ResetPasswordAsync(ResetPasswordRequest request, CancellationToken ct = default);
+-
+-    Task VerifyEmailAsync(VerifyEmailRequest request, CancellationToken ct = default);
+-
+-    /// <summary>Always succeeds from the caller's point of view — same non-enumeration reasoning as ForgotPasswordAsync.</summary>
+-    Task ResendVerificationAsync(ResendVerificationRequest request, CancellationToken ct = default);
+-}
+-
+-/// <summary>
+-/// Owns credential storage and token issuing directly: register/login,
+-/// JWT generation, refresh-token rotation, password reset, email
+-/// verification, and account lockout.
+-/// </summary>
+-public sealed class AuthService : IAuthService
+-{
+-    private readonly AppDbContext _db;
+-    private readonly IPasswordHasher<User> _passwordHasher;
+-    private readonly IJwtTokenService _jwtTokenService;
+-    private readonly IRefreshTokenService _refreshTokenService;
+-    private readonly IEmailSender _emailSender;
+-    private readonly AuthSettings _authSettings;
+-
+-    public AuthService(
+-        AppDbContext db,
+-        IPasswordHasher<User> passwordHasher,
+-        IJwtTokenService jwtTokenService,
+-        IRefreshTokenService refreshTokenService,
+-        IEmailSender emailSender,
+-        IOptions<AuthSettings> authSettings)
+-    {
+-        _db = db;
+-        _passwordHasher = passwordHasher;
+-        _jwtTokenService = jwtTokenService;
+-        _refreshTokenService = refreshTokenService;
+-        _emailSender = emailSender;
+-        _authSettings = authSettings.Value;
+-    }
+-
+-    public async Task<AuthResponse> RegisterAsync(RegisterRequest request, string? ip, CancellationToken ct = default)
+-    {
+-        var normalizedEmail = Normalize(request.Email);
+-
+-        var exists = await _db.Users.AnyAsync(u => u.Email == normalizedEmail, ct);
+-        if (exists)
+-        {
+-            throw new ConflictException($"An account with email \"{normalizedEmail}\" already exists.");
+-        }
+-
+-        var user = new User
+-        {
+-            Email = normalizedEmail,
+-            FullName = string.IsNullOrWhiteSpace(request.FullName) ? null : request.FullName.Trim(),
+-        };
+-        user.PasswordHash = _passwordHasher.HashPassword(user, request.Password);
+-
+-        _db.Users.Add(user);
+-        await _db.SaveChangesAsync(ct);
+-
+-        await IssueEmailVerificationTokenAsync(user, ct);
+-
+-        return await BuildAuthResponseAsync(user, ip, ct);
+-    }
+-
+-    public async Task<AuthResponse> LoginAsync(LoginRequest request, string? ip, CancellationToken ct = default)
+-    {
+-        var normalizedEmail = Normalize(request.Email);
+-        var user = await _db.Users.FirstOrDefaultAsync(u => u.Email == normalizedEmail, ct);
+-
+-        // Same generic message whether the account doesn't exist or the
+-        // password is wrong — never reveal which one it was.
+-        if (user is null)
+-        {
+-            throw new UnauthorizedAppException("Invalid email or password.");
+-        }
+-
+-        if (!user.IsActive)
+-        {
+-            throw new UnauthorizedAppException("This account has been deactivated.");
+-        }
+-
+-        if (user.LockedUntilUtc is { } lockedUntil && lockedUntil > DateTime.UtcNow)
+-        {
+-            throw new UnauthorizedAppException(
+-                $"Too many failed login attempts. Try again after {lockedUntil:u}.");
+-        }
+-
+-        var verification = _passwordHasher.VerifyHashedPassword(user, user.PasswordHash, request.Password);
+-        if (verification == PasswordVerificationResult.Failed)
+-        {
+-            user.FailedLoginAttempts += 1;
+-            if (user.FailedLoginAttempts >= _authSettings.MaxFailedLoginAttempts)
+-            {
+-                user.LockedUntilUtc = DateTime.UtcNow.AddMinutes(_authSettings.LockoutMinutes);
+-            }
+-
+-            await _db.SaveChangesAsync(ct);
+-            throw new UnauthorizedAppException("Invalid email or password.");
+-        }
+-
+-        if (verification == PasswordVerificationResult.SuccessRehashNeeded)
+-        {
+-            user.PasswordHash = _passwordHasher.HashPassword(user, request.Password);
+-        }
+-
+-        user.FailedLoginAttempts = 0;
+-        user.LockedUntilUtc = null;
+-        user.LastLoginAtUtc = DateTime.UtcNow;
+-        user.UpdatedAtUtc = DateTime.UtcNow;
+-        await _db.SaveChangesAsync(ct);
+-
+-        return await BuildAuthResponseAsync(user, ip, ct);
+-    }
+-
+-    public async Task<AuthResponse> RefreshAsync(string rawRefreshToken, string? ip, CancellationToken ct = default)
+-    {
+-        var current = await _refreshTokenService.ValidateAsync(rawRefreshToken, ct);
+-
+-        var user = await _db.Users.FindAsync(new object?[] { current.UserId }, ct)
+-            ?? throw new UnauthorizedAppException("Refresh token no longer matches an existing account.");
+-
+-        if (!user.IsActive)
+-        {
+-            throw new UnauthorizedAppException("This account has been deactivated.");
+-        }
+-
+-        var newRawRefreshToken = await _refreshTokenService.RotateAsync(current, ip, ct);
+-        var token = _jwtTokenService.GenerateToken(user);
+-
+-        return new AuthResponse
+-        {
+-            AccessToken = token.AccessToken,
+-            ExpiresAtUtc = token.ExpiresAtUtc,
+-            RefreshToken = newRawRefreshToken,
+-            User = ToDto(user),
+-        };
+-    }
+-
+-    public Task LogoutAsync(string rawRefreshToken, string? ip, CancellationToken ct = default) =>
+-        _refreshTokenService.RevokeAsync(rawRefreshToken, ip, ct);
+-
+-    public async Task<AuthenticatedUserDto> GetCurrentUserAsync(Guid userId, CancellationToken ct = default)
+-    {
+-        var user = await _db.Users.FindAsync(new object?[] { userId }, ct)
+-            ?? throw new NotFoundException("User", userId);
+-
+-        return ToDto(user);
+-    }
+-
+-    public async Task ForgotPasswordAsync(ForgotPasswordRequest request, CancellationToken ct = default)
+-    {
+-        var normalizedEmail = Normalize(request.Email);
+-        var user = await _db.Users.FirstOrDefaultAsync(u => u.Email == normalizedEmail, ct);
+-
+-        // Deliberately do nothing observable if the account doesn't exist —
+-        // returning early here (instead of throwing NotFoundException)
+-        // avoids letting a caller use this endpoint to enumerate registered
+-        // emails.
+-        if (user is null || !user.IsActive)
+-        {
+-            return;
+-        }
+-
+-        var rawToken = SecureTokenGenerator.GenerateUrlSafeToken();
+-        _db.PasswordResetTokens.Add(new PasswordResetToken
+-        {
+-            UserId = user.Id,
+-            TokenHash = SecureTokenGenerator.Hash(rawToken),
+-            ExpiresAtUtc = DateTime.UtcNow.AddMinutes(_authSettings.PasswordResetTokenExpiryMinutes),
+-        });
+-        await _db.SaveChangesAsync(ct);
+-
+-        await _emailSender.SendAsync(
+-            user.Email,
+-            "Reset your Aurum password",
+-            $"<p>Use this token to reset your password: <strong>{rawToken}</strong></p>" +
+-            $"<p>This token expires in {_authSettings.PasswordResetTokenExpiryMinutes} minutes. If you didn't request this, ignore this email.</p>",
+-            ct);
+-    }
+-
+-    public async Task ResetPasswordAsync(ResetPasswordRequest request, CancellationToken ct = default)
+-    {
+-        var hash = SecureTokenGenerator.Hash(request.Token);
+-        var token = await _db.PasswordResetTokens.FirstOrDefaultAsync(t => t.TokenHash == hash, ct);
+-
+-        if (token is null || !token.IsActive)
+-        {
+-            throw new UnauthorizedAppException("Password reset token is invalid or has expired.");
+-        }
+-
+-        var user = await _db.Users.FindAsync(new object?[] { token.UserId }, ct)
+-            ?? throw new UnauthorizedAppException("Password reset token no longer matches an existing account.");
+-
+-        user.PasswordHash = _passwordHasher.HashPassword(user, request.NewPassword);
+-        user.UpdatedAtUtc = DateTime.UtcNow;
+-        user.FailedLoginAttempts = 0;
+-        user.LockedUntilUtc = null;
+-        token.ConsumedAtUtc = DateTime.UtcNow;
+-
+-        await _db.SaveChangesAsync(ct);
+-
+-        // A password reset should end every existing session, not just the
+-        // one that requested the reset.
+-        await _refreshTokenService.RevokeAllForUserAsync(user.Id, ct);
+-    }
+-
+-    public async Task VerifyEmailAsync(VerifyEmailRequest request, CancellationToken ct = default)
+-    {
+-        var hash = SecureTokenGenerator.Hash(request.Token);
+-        var token = await _db.EmailVerificationTokens.FirstOrDefaultAsync(t => t.TokenHash == hash, ct);
+-
+-        if (token is null || !token.IsActive)
+-        {
+-            throw new UnauthorizedAppException("Email verification token is invalid or has expired.");
+-        }
+-
+-        var user = await _db.Users.FindAsync(new object?[] { token.UserId }, ct)
+-            ?? throw new UnauthorizedAppException("Email verification token no longer matches an existing account.");
+-
+-        user.EmailConfirmedAtUtc ??= DateTime.UtcNow;
+-        user.UpdatedAtUtc = DateTime.UtcNow;
+-        token.ConsumedAtUtc = DateTime.UtcNow;
+-
+-        await _db.SaveChangesAsync(ct);
+-    }
+-
+-    public async Task ResendVerificationAsync(ResendVerificationRequest request, CancellationToken ct = default)
+-    {
+-        var normalizedEmail = Normalize(request.Email);
+-        var user = await _db.Users.FirstOrDefaultAsync(u => u.Email == normalizedEmail, ct);
+-
+-        // Same non-enumeration reasoning as ForgotPasswordAsync — and
+-        // already-verified accounts are also a silent no-op.
+-        if (user is null || user.EmailConfirmedAtUtc is not null)
+-        {
+-            return;
+-        }
+-
+-        await IssueEmailVerificationTokenAsync(user, ct);
+-    }
+-
+-    private async Task IssueEmailVerificationTokenAsync(User user, CancellationToken ct)
+-    {
+-        var rawToken = SecureTokenGenerator.GenerateUrlSafeToken();
+-        _db.EmailVerificationTokens.Add(new EmailVerificationToken
+-        {
+-            UserId = user.Id,
+-            TokenHash = SecureTokenGenerator.Hash(rawToken),
+-            ExpiresAtUtc = DateTime.UtcNow.AddHours(_authSettings.EmailVerificationTokenExpiryHours),
+-        });
+-        await _db.SaveChangesAsync(ct);
+-
+-        await _emailSender.SendAsync(
+-            user.Email,
+-            "Verify your Aurum email address",
+-            $"<p>Use this token to verify your email: <strong>{rawToken}</strong></p>" +
+-            $"<p>This token expires in {_authSettings.EmailVerificationTokenExpiryHours} hours.</p>",
+-            ct);
+-    }
+-
+-    private async Task<AuthResponse> BuildAuthResponseAsync(User user, string? ip, CancellationToken ct)
+-    {
+-        var token = _jwtTokenService.GenerateToken(user);
+-        var rawRefreshToken = await _refreshTokenService.IssueAsync(user.Id, ip, ct);
+-
+-        return new AuthResponse
+-        {
+-            AccessToken = token.AccessToken,
+-            ExpiresAtUtc = token.ExpiresAtUtc,
+-            RefreshToken = rawRefreshToken,
+-            User = ToDto(user),
+-        };
+-    }
+-
+-    private static string Normalize(string email) => email.Trim().ToLowerInvariant();
+-
+-    private static AuthenticatedUserDto ToDto(User user) => new()
+-    {
+-        Id = user.Id,
+-        Email = user.Email,
+-        FullName = user.FullName,
+-        Role = user.Role.ToString(),
+-        IsActive = user.IsActive,
+-        EmailConfirmed = user.EmailConfirmedAtUtc is not null,
+-    };
+-}
+diff --git a/Features/Authentication/Configurations/EmailVerificationTokenConfiguration.cs b/Features/Authentication/Configurations/EmailVerificationTokenConfiguration.cs
+deleted file mode 100644
+index 6afcf78..0000000
+--- a/Features/Authentication/Configurations/EmailVerificationTokenConfiguration.cs
++++ /dev/null
+@@ -1,34 +0,0 @@
+-using Aurum.Api.Features.Authentication.Entities;
+-using Microsoft.EntityFrameworkCore;
+-using Microsoft.EntityFrameworkCore.Metadata.Builders;
+-
+-namespace Aurum.Api.Features.Authentication.Configurations;
+-
+-public sealed class EmailVerificationTokenConfiguration : IEntityTypeConfiguration<EmailVerificationToken>
+-{
+-    public void Configure(EntityTypeBuilder<EmailVerificationToken> builder)
+-    {
+-        builder.ToTable("email_verification_tokens");
+-
+-        builder.HasKey(t => t.Id);
+-
+-        builder.Property(t => t.TokenHash)
+-            .IsRequired()
+-            .HasMaxLength(64);
+-
+-        builder.HasIndex(t => t.TokenHash)
+-            .IsUnique()
+-            .HasDatabaseName("email_verification_tokens_token_hash_uq");
+-
+-        builder.HasIndex(t => t.UserId)
+-            .HasDatabaseName("email_verification_tokens_user_id_idx");
+-
+-        builder.Property(t => t.ExpiresAtUtc)
+-            .IsRequired();
+-
+-        builder.Property(t => t.CreatedAtUtc)
+-            .IsRequired();
+-
+-        builder.Ignore(t => t.IsActive);
+-    }
+-}
+diff --git a/Features/Authentication/Configurations/PasswordResetTokenConfiguration.cs b/Features/Authentication/Configurations/PasswordResetTokenConfiguration.cs
+deleted file mode 100644
+index ae0ec46..0000000
+--- a/Features/Authentication/Configurations/PasswordResetTokenConfiguration.cs
++++ /dev/null
+@@ -1,34 +0,0 @@
+-using Aurum.Api.Features.Authentication.Entities;
+-using Microsoft.EntityFrameworkCore;
+-using Microsoft.EntityFrameworkCore.Metadata.Builders;
+-
+-namespace Aurum.Api.Features.Authentication.Configurations;
+-
+-public sealed class PasswordResetTokenConfiguration : IEntityTypeConfiguration<PasswordResetToken>
+-{
+-    public void Configure(EntityTypeBuilder<PasswordResetToken> builder)
+-    {
+-        builder.ToTable("password_reset_tokens");
+-
+-        builder.HasKey(t => t.Id);
+-
+-        builder.Property(t => t.TokenHash)
+-            .IsRequired()
+-            .HasMaxLength(64);
+-
+-        builder.HasIndex(t => t.TokenHash)
+-            .IsUnique()
+-            .HasDatabaseName("password_reset_tokens_token_hash_uq");
+-
+-        builder.HasIndex(t => t.UserId)
+-            .HasDatabaseName("password_reset_tokens_user_id_idx");
+-
+-        builder.Property(t => t.ExpiresAtUtc)
+-            .IsRequired();
+-
+-        builder.Property(t => t.CreatedAtUtc)
+-            .IsRequired();
+-
+-        builder.Ignore(t => t.IsActive);
+-    }
+-}
+diff --git a/Features/Authentication/Configurations/RefreshTokenConfiguration.cs b/Features/Authentication/Configurations/RefreshTokenConfiguration.cs
+deleted file mode 100644
+index 1fe61dc..0000000
+--- a/Features/Authentication/Configurations/RefreshTokenConfiguration.cs
++++ /dev/null
+@@ -1,40 +0,0 @@
+-using Aurum.Api.Features.Authentication.Entities;
+-using Microsoft.EntityFrameworkCore;
+-using Microsoft.EntityFrameworkCore.Metadata.Builders;
+-
+-namespace Aurum.Api.Features.Authentication.Configurations;
+-
+-public sealed class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
+-{
+-    public void Configure(EntityTypeBuilder<RefreshToken> builder)
+-    {
+-        builder.ToTable("refresh_tokens");
+-
+-        builder.HasKey(t => t.Id);
+-
+-        builder.Property(t => t.TokenHash)
+-            .IsRequired()
+-            .HasMaxLength(64); // SHA-256 hex is always 64 characters.
+-
+-        builder.HasIndex(t => t.TokenHash)
+-            .IsUnique()
+-            .HasDatabaseName("refresh_tokens_token_hash_uq");
+-
+-        builder.HasIndex(t => t.UserId)
+-            .HasDatabaseName("refresh_tokens_user_id_idx");
+-
+-        builder.Property(t => t.CreatedByIp)
+-            .HasMaxLength(64);
+-
+-        builder.Property(t => t.RevokedByIp)
+-            .HasMaxLength(64);
+-
+-        builder.Property(t => t.ExpiresAtUtc)
+-            .IsRequired();
+-
+-        builder.Property(t => t.CreatedAtUtc)
+-            .IsRequired();
+-
+-        builder.Ignore(t => t.IsActive);
+-    }
+-}
+diff --git a/Features/Authentication/Dtos/AuthResponse.cs b/Features/Authentication/Dtos/AuthResponse.cs
+deleted file mode 100644
+index 37b80d1..0000000
+--- a/Features/Authentication/Dtos/AuthResponse.cs
++++ /dev/null
+@@ -1,28 +0,0 @@
+-namespace Aurum.Api.Features.Authentication.Dtos;
+-
+-public sealed class AuthenticatedUserDto
+-{
+-    public Guid Id { get; init; }
+-
+-    public string Email { get; init; } = string.Empty;
+-
+-    public string? FullName { get; init; }
+-
+-    public string Role { get; init; } = string.Empty;
+-
+-    public bool IsActive { get; init; }
+-
+-    public bool EmailConfirmed { get; init; }
+-}
+-
+-/// <summary>Returned by register, login, and refresh.</summary>
+-public sealed class AuthResponse
+-{
+-    public string AccessToken { get; init; } = string.Empty;
+-
+-    public DateTime ExpiresAtUtc { get; init; }
+-
+-    public string RefreshToken { get; init; } = string.Empty;
+-
+-    public AuthenticatedUserDto User { get; init; } = null!;
+-}
+diff --git a/Features/Authentication/Dtos/ForgotPasswordRequest.cs b/Features/Authentication/Dtos/ForgotPasswordRequest.cs
+deleted file mode 100644
+index d8694aa..0000000
+--- a/Features/Authentication/Dtos/ForgotPasswordRequest.cs
++++ /dev/null
+@@ -1,6 +0,0 @@
+-namespace Aurum.Api.Features.Authentication.Dtos;
+-
+-public sealed class ForgotPasswordRequest
+-{
+-    public string Email { get; init; } = string.Empty;
+-}
+diff --git a/Features/Authentication/Dtos/LoginRequest.cs b/Features/Authentication/Dtos/LoginRequest.cs
+deleted file mode 100644
+index 52bcccf..0000000
+--- a/Features/Authentication/Dtos/LoginRequest.cs
++++ /dev/null
+@@ -1,8 +0,0 @@
+-namespace Aurum.Api.Features.Authentication.Dtos;
+-
+-public sealed class LoginRequest
+-{
+-    public string Email { get; init; } = string.Empty;
+-
+-    public string Password { get; init; } = string.Empty;
+-}
+diff --git a/Features/Authentication/Dtos/RefreshTokenRequest.cs b/Features/Authentication/Dtos/RefreshTokenRequest.cs
+deleted file mode 100644
+index b964f17..0000000
+--- a/Features/Authentication/Dtos/RefreshTokenRequest.cs
++++ /dev/null
+@@ -1,6 +0,0 @@
+-namespace Aurum.Api.Features.Authentication.Dtos;
+-
+-public sealed class RefreshTokenRequest
+-{
+-    public string RefreshToken { get; init; } = string.Empty;
+-}
+diff --git a/Features/Authentication/Dtos/RegisterRequest.cs b/Features/Authentication/Dtos/RegisterRequest.cs
+deleted file mode 100644
+index 2250367..0000000
+--- a/Features/Authentication/Dtos/RegisterRequest.cs
++++ /dev/null
+@@ -1,10 +0,0 @@
+-namespace Aurum.Api.Features.Authentication.Dtos;
+-
+-public sealed class RegisterRequest
+-{
+-    public string Email { get; init; } = string.Empty;
+-
+-    public string Password { get; init; } = string.Empty;
+-
+-    public string? FullName { get; init; }
+-}
+diff --git a/Features/Authentication/Dtos/ResendVerificationRequest.cs b/Features/Authentication/Dtos/ResendVerificationRequest.cs
+deleted file mode 100644
+index 5295f5d..0000000
+--- a/Features/Authentication/Dtos/ResendVerificationRequest.cs
++++ /dev/null
+@@ -1,6 +0,0 @@
+-namespace Aurum.Api.Features.Authentication.Dtos;
+-
+-public sealed class ResendVerificationRequest
+-{
+-    public string Email { get; init; } = string.Empty;
+-}
+diff --git a/Features/Authentication/Dtos/ResetPasswordRequest.cs b/Features/Authentication/Dtos/ResetPasswordRequest.cs
+deleted file mode 100644
+index 7d51e79..0000000
+--- a/Features/Authentication/Dtos/ResetPasswordRequest.cs
++++ /dev/null
+@@ -1,8 +0,0 @@
+-namespace Aurum.Api.Features.Authentication.Dtos;
+-
+-public sealed class ResetPasswordRequest
+-{
+-    public string Token { get; init; } = string.Empty;
+-
+-    public string NewPassword { get; init; } = string.Empty;
+-}
+diff --git a/Features/Authentication/Dtos/VerifyEmailRequest.cs b/Features/Authentication/Dtos/VerifyEmailRequest.cs
+deleted file mode 100644
+index 2a93155..0000000
+--- a/Features/Authentication/Dtos/VerifyEmailRequest.cs
++++ /dev/null
+@@ -1,6 +0,0 @@
+-namespace Aurum.Api.Features.Authentication.Dtos;
+-
+-public sealed class VerifyEmailRequest
+-{
+-    public string Token { get; init; } = string.Empty;
+-}
+diff --git a/Features/Authentication/Entities/EmailVerificationToken.cs b/Features/Authentication/Entities/EmailVerificationToken.cs
+deleted file mode 100644
+index 34b3258..0000000
+--- a/Features/Authentication/Entities/EmailVerificationToken.cs
++++ /dev/null
+@@ -1,23 +0,0 @@
+-namespace Aurum.Api.Features.Authentication.Entities;
+-
+-/// <summary>
+-/// A single-use token proving control of the account's email address.
+-/// Only the SHA-256 hash is persisted — the raw token is emailed to the
+-/// user and never stored. See AuthService.VerifyEmailAsync / ResendVerificationAsync.
+-/// </summary>
+-public sealed class EmailVerificationToken
+-{
+-    public Guid Id { get; set; } = Guid.NewGuid();
+-
+-    public Guid UserId { get; set; }
+-
+-    public string TokenHash { get; set; } = string.Empty;
+-
+-    public DateTime ExpiresAtUtc { get; set; }
+-
+-    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+-
+-    public DateTime? ConsumedAtUtc { get; set; }
+-
+-    public bool IsActive => ConsumedAtUtc is null && DateTime.UtcNow < ExpiresAtUtc;
+-}
+diff --git a/Features/Authentication/Entities/PasswordResetToken.cs b/Features/Authentication/Entities/PasswordResetToken.cs
+deleted file mode 100644
+index a396db1..0000000
+--- a/Features/Authentication/Entities/PasswordResetToken.cs
++++ /dev/null
+@@ -1,23 +0,0 @@
+-namespace Aurum.Api.Features.Authentication.Entities;
+-
+-/// <summary>
+-/// A single-use token authorizing exactly one password reset. Only the
+-/// SHA-256 hash is persisted — the raw token is emailed to the user and
+-/// never stored. See AuthService.ForgotPasswordAsync / ResetPasswordAsync.
+-/// </summary>
+-public sealed class PasswordResetToken
+-{
+-    public Guid Id { get; set; } = Guid.NewGuid();
+-
+-    public Guid UserId { get; set; }
+-
+-    public string TokenHash { get; set; } = string.Empty;
+-
+-    public DateTime ExpiresAtUtc { get; set; }
+-
+-    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+-
+-    public DateTime? ConsumedAtUtc { get; set; }
+-
+-    public bool IsActive => ConsumedAtUtc is null && DateTime.UtcNow < ExpiresAtUtc;
+-}
+diff --git a/Features/Authentication/Entities/RefreshToken.cs b/Features/Authentication/Entities/RefreshToken.cs
+deleted file mode 100644
+index 4798058..0000000
+--- a/Features/Authentication/Entities/RefreshToken.cs
++++ /dev/null
+@@ -1,32 +0,0 @@
+-namespace Aurum.Api.Features.Authentication.Entities;
+-
+-/// <summary>
+-/// A single refresh token in a rotation chain. The raw token is only ever
+-/// handed to the client once, at issue time — this table stores nothing but
+-/// its SHA-256 hash, so a leaked database dump alone can't be replayed as a
+-/// live session. See IRefreshTokenService.
+-/// </summary>
+-public sealed class RefreshToken
+-{
+-    public Guid Id { get; set; } = Guid.NewGuid();
+-
+-    public Guid UserId { get; set; }
+-
+-    /// <summary>SHA-256 hex hash of the raw token. Never the raw token itself.</summary>
+-    public string TokenHash { get; set; } = string.Empty;
+-
+-    public DateTime ExpiresAtUtc { get; set; }
+-
+-    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+-
+-    public string? CreatedByIp { get; set; }
+-
+-    public DateTime? RevokedAtUtc { get; set; }
+-
+-    public string? RevokedByIp { get; set; }
+-
+-    /// <summary>Set when this token was rotated out in favor of a newer one — lets a reuse of a revoked token be detected as a possible theft.</summary>
+-    public Guid? ReplacedByTokenId { get; set; }
+-
+-    public bool IsActive => RevokedAtUtc is null && DateTime.UtcNow < ExpiresAtUtc;
+-}
+diff --git a/Features/Authentication/README.md b/Features/Authentication/README.md
+deleted file mode 100644
+index 87c542a..0000000
+--- a/Features/Authentication/README.md
++++ /dev/null
+@@ -1,97 +0,0 @@
+-# Authentication
+-
+-Owns credential storage and JWT issuing directly: register/login, refresh
+-tokens, password reset, email verification, and role-based authorization.
+-This is the only feature in the API today — see the root README for what
+-else is planned.
+-
+-## Implemented
+-
+-- `POST /api/auth/register` — creates a `User` (see `Features/Users`),
+-  hashes the password with `IPasswordHasher<User>`, issues an email
+-  verification token (sent via `IEmailSender`), returns the new user's
+-  `AuthResponse` directly (HTTP 201, no envelope).
+-- `POST /api/auth/login` — verifies credentials, enforces account lockout
+-  after repeated failures, returns `AuthResponse` directly (HTTP 200, no
+-  envelope).
+-- `POST /api/auth/refresh` — exchanges a still-valid refresh token for a
+-  new access token, rotating the refresh token in the same call (old one is
+-  revoked, a new one is issued).
+-- `POST /api/auth/logout` — revokes a single refresh token.
+-- `GET /api/auth/me` — `[Authorize]`-protected, returns `AuthenticatedUserDto`
+-  directly via `ICurrentUserService`.
+-- `POST /api/auth/forgot-password` — always returns 204 whether or not the
+-  email is registered; issues a password reset token and emails it via
+-  `IEmailSender` if the account exists and is active.
+-- `POST /api/auth/reset-password` — consumes a password reset token, sets
+-  the new password, and revokes every refresh token for that user (a reset
+-  ends every existing session, not just the one that requested it).
+-- `POST /api/auth/verify-email` — consumes an email verification token and
+-  marks the account's email as confirmed.
+-- `POST /api/auth/resend-verification` — always returns 204; issues a new
+-  verification token if the account exists and isn't already verified.
+-- JWT issuing (`Infrastructure/Security/JwtTokenService`) and validation
+-  (JwtBearer, wired in `Core/Extensions/AuthenticationServiceExtensions.cs`)
+-  are HS256, claims: `sub` (user id), `email`, `role` (as `ClaimTypes.Role`,
+-  so `[Authorize(Roles = "Admin")]` works on any controller with no extra
+-  wiring).
+-- Refresh tokens (`Infrastructure/Security/IRefreshTokenService`) are opaque
+-  random strings, not JWTs — only their SHA-256 hash is stored, in
+-  `refresh_tokens`. Password reset and email verification tokens follow the
+-  same "store the hash, not the secret" pattern in their own tables.
+-- Account lockout: `User.FailedLoginAttempts` increments on every failed
+-  login; once it reaches `Auth:MaxFailedLoginAttempts` (default 5),
+-  `User.LockedUntilUtc` is set `Auth:LockoutMinutes` (default 15) into the
+-  future and login is rejected until it passes. Resets to 0 on any
+-  successful login or password reset.
+-- Role-based authorization: `User.Role` is a single `UserRole` value
+-  (`User` or `Admin`), stored as text (not a native Postgres enum, so
+-  adding it is a plain `ALTER TABLE ADD COLUMN`, no `CREATE TYPE`).
+-
+-## API contract
+-
+-Every response — success or error — is returned **flat, with no wrapper**:
+-a bare object on success, `{ "error": "message" }` on failure (see
+-`Core/Middleware/ExceptionHandlingMiddleware.cs`). Failed
+-`[Authorize(Roles = ...)]` checks are also routed through this same shape
+-(HTTP 403) via
+-`Infrastructure/Security/AppAuthorizationMiddlewareResultHandler.cs`,
+-instead of ASP.NET's default empty 403 body.
+-
+-## Database schema
+-
+-`users`, `refresh_tokens`, `email_verification_tokens`, and
+-`password_reset_tokens` are the entire schema today, created by
+-`dotnet ef database update` against a connection string set via the
+-`DATABASE_URL` environment variable (see
+-`Core/Extensions/DatabaseServiceExtensions.cs`). Never commit a real
+-connection string or JWT signing key to source control; set both as
+-environment variables (locally, in `.env`, or via `dotnet user-secrets`)
+-instead.
+-
+-## Email delivery
+-
+-`Infrastructure/Email/IEmailSender` is the abstraction every caller depends
+-on. The registered default, `LoggingEmailSender`, writes the message to the
+-application log instead of sending it through a paid provider — this keeps
+-register/forgot-password/resend-verification fully working with zero
+-billing dependency. Swap the registration in
+-`Core/Extensions/SecurityServiceExtensions.cs` for a real
+-SMTP/API-based implementation when one is chosen; no other code needs to
+-change.
+-
+-## Not yet implemented
+-
+-- No admin-only endpoint exists yet to exercise `[Authorize(Roles = "Admin")]`
+-  end-to-end — the claim and the attribute both work, but nothing in this
+-  API currently requires the Admin role. Add `[Authorize(Roles = "Admin")]`
+-  to any controller action that should be Admin-only.
+-
+-## Configuration
+-
+-`appsettings.json`'s `Jwt:SigningKey` and `ConnectionStrings:DefaultConnection`
+-are deliberately left empty — both must be supplied as environment
+-variables (`JWT_SIGNING_KEY`, `DATABASE_URL`), never committed to source
+-control. See `.env.example` at the repo root for every variable this
+-feature reads, plus the `Jwt:*` / `Auth:*` sections in `appsettings.json`
+-for the non-secret defaults (token lifetimes, lockout thresholds).
+diff --git a/Features/Authentication/Validators/ForgotPasswordRequestValidator.cs b/Features/Authentication/Validators/ForgotPasswordRequestValidator.cs
+deleted file mode 100644
+index c9b1a03..0000000
+--- a/Features/Authentication/Validators/ForgotPasswordRequestValidator.cs
++++ /dev/null
+@@ -1,14 +0,0 @@
+-using Aurum.Api.Features.Authentication.Dtos;
+-using FluentValidation;
+-
+-namespace Aurum.Api.Features.Authentication.Validators;
+-
+-public sealed class ForgotPasswordRequestValidator : AbstractValidator<ForgotPasswordRequest>
+-{
+-    public ForgotPasswordRequestValidator()
+-    {
+-        RuleFor(x => x.Email)
+-            .NotEmpty()
+-            .EmailAddress();
+-    }
+-}
+diff --git a/Features/Authentication/Validators/LoginRequestValidator.cs b/Features/Authentication/Validators/LoginRequestValidator.cs
+deleted file mode 100644
+index 0486db3..0000000
+--- a/Features/Authentication/Validators/LoginRequestValidator.cs
++++ /dev/null
+@@ -1,17 +0,0 @@
+-using Aurum.Api.Features.Authentication.Dtos;
+-using FluentValidation;
+-
+-namespace Aurum.Api.Features.Authentication.Validators;
+-
+-public sealed class LoginRequestValidator : AbstractValidator<LoginRequest>
+-{
+-    public LoginRequestValidator()
+-    {
+-        RuleFor(x => x.Email)
+-            .NotEmpty()
+-            .EmailAddress();
+-
+-        RuleFor(x => x.Password)
+-            .NotEmpty();
+-    }
+-}
+diff --git a/Features/Authentication/Validators/RefreshTokenRequestValidator.cs b/Features/Authentication/Validators/RefreshTokenRequestValidator.cs
+deleted file mode 100644
+index 5131e08..0000000
+--- a/Features/Authentication/Validators/RefreshTokenRequestValidator.cs
++++ /dev/null
+@@ -1,13 +0,0 @@
+-using Aurum.Api.Features.Authentication.Dtos;
+-using FluentValidation;
+-
+-namespace Aurum.Api.Features.Authentication.Validators;
+-
+-public sealed class RefreshTokenRequestValidator : AbstractValidator<RefreshTokenRequest>
+-{
+-    public RefreshTokenRequestValidator()
+-    {
+-        RuleFor(x => x.RefreshToken)
+-            .NotEmpty();
+-    }
+-}
+diff --git a/Features/Authentication/Validators/RegisterRequestValidator.cs b/Features/Authentication/Validators/RegisterRequestValidator.cs
+deleted file mode 100644
+index bf01275..0000000
+--- a/Features/Authentication/Validators/RegisterRequestValidator.cs
++++ /dev/null
+@@ -1,24 +0,0 @@
+-using Aurum.Api.Features.Authentication.Dtos;
+-using FluentValidation;
+-
+-namespace Aurum.Api.Features.Authentication.Validators;
+-
+-public sealed class RegisterRequestValidator : AbstractValidator<RegisterRequest>
+-{
+-    public RegisterRequestValidator()
+-    {
+-        RuleFor(x => x.Email)
+-            .NotEmpty()
+-            .EmailAddress()
+-            .MaximumLength(255);
+-
+-        RuleFor(x => x.Password)
+-            .NotEmpty()
+-            .MinimumLength(8)
+-            .WithMessage("Password must be at least 8 characters long.");
+-
+-        RuleFor(x => x.FullName)
+-            .MaximumLength(120)
+-            .When(x => x.FullName is not null);
+-    }
+-}
+diff --git a/Features/Authentication/Validators/ResendVerificationRequestValidator.cs b/Features/Authentication/Validators/ResendVerificationRequestValidator.cs
+deleted file mode 100644
+index df09b9f..0000000
+--- a/Features/Authentication/Validators/ResendVerificationRequestValidator.cs
++++ /dev/null
+@@ -1,14 +0,0 @@
+-using Aurum.Api.Features.Authentication.Dtos;
+-using FluentValidation;
+-
+-namespace Aurum.Api.Features.Authentication.Validators;
+-
+-public sealed class ResendVerificationRequestValidator : AbstractValidator<ResendVerificationRequest>
+-{
+-    public ResendVerificationRequestValidator()
+-    {
+-        RuleFor(x => x.Email)
+-            .NotEmpty()
+-            .EmailAddress();
+-    }
+-}
+diff --git a/Features/Authentication/Validators/ResetPasswordRequestValidator.cs b/Features/Authentication/Validators/ResetPasswordRequestValidator.cs
+deleted file mode 100644
+index cf11494..0000000
+--- a/Features/Authentication/Validators/ResetPasswordRequestValidator.cs
++++ /dev/null
+@@ -1,18 +0,0 @@
+-using Aurum.Api.Features.Authentication.Dtos;
+-using FluentValidation;
+-
+-namespace Aurum.Api.Features.Authentication.Validators;
+-
+-public sealed class ResetPasswordRequestValidator : AbstractValidator<ResetPasswordRequest>
+-{
+-    public ResetPasswordRequestValidator()
+-    {
+-        RuleFor(x => x.Token)
+-            .NotEmpty();
+-
+-        RuleFor(x => x.NewPassword)
+-            .NotEmpty()
+-            .MinimumLength(8)
+-            .WithMessage("Password must be at least 8 characters long.");
+-    }
+-}
+diff --git a/Features/Authentication/Validators/VerifyEmailRequestValidator.cs b/Features/Authentication/Validators/VerifyEmailRequestValidator.cs
+deleted file mode 100644
+index 017aa5f..0000000
+--- a/Features/Authentication/Validators/VerifyEmailRequestValidator.cs
++++ /dev/null
+@@ -1,13 +0,0 @@
+-using Aurum.Api.Features.Authentication.Dtos;
+-using FluentValidation;
+-
+-namespace Aurum.Api.Features.Authentication.Validators;
+-
+-public sealed class VerifyEmailRequestValidator : AbstractValidator<VerifyEmailRequest>
+-{
+-    public VerifyEmailRequestValidator()
+-    {
+-        RuleFor(x => x.Token)
+-            .NotEmpty();
+-    }
+-}
+diff --git a/Features/Users/Configurations/UserConfiguration.cs b/Features/Users/Configurations/UserConfiguration.cs
+deleted file mode 100644
+index 771c146..0000000
+--- a/Features/Users/Configurations/UserConfiguration.cs
++++ /dev/null
+@@ -1,55 +0,0 @@
+-using Aurum.Api.Features.Users.Entities;
+-using Microsoft.EntityFrameworkCore;
+-using Microsoft.EntityFrameworkCore.Metadata.Builders;
+-
+-namespace Aurum.Api.Features.Users.Configurations;
+-
+-public sealed class UserConfiguration : IEntityTypeConfiguration<User>
+-{
+-    public void Configure(EntityTypeBuilder<User> builder)
+-    {
+-        builder.ToTable("users");
+-
+-        builder.HasKey(u => u.Id);
+-
+-        builder.Property(u => u.Email)
+-            .IsRequired()
+-            .HasMaxLength(255);
+-
+-        // Case-sensitivity note: AuthService always normalizes to
+-        // lower-case before reading/writing this column, so a plain unique
+-        // index is sufficient — no need for a citext column or a
+-        // lower(email) expression index.
+-        builder.HasIndex(u => u.Email)
+-            .IsUnique()
+-            .HasDatabaseName("users_email_uq");
+-
+-        builder.Property(u => u.PasswordHash)
+-            .IsRequired();
+-
+-        builder.Property(u => u.FullName)
+-            .HasMaxLength(120);
+-
+-        // Stored as text, not a native Postgres enum — see UserRole's own
+-        // doc comment for why.
+-        builder.Property(u => u.Role)
+-            .HasConversion<string>()
+-            .HasMaxLength(20)
+-            .HasDefaultValue(UserRole.User)
+-            .IsRequired();
+-
+-        builder.Property(u => u.IsActive)
+-            .HasDefaultValue(true)
+-            .IsRequired();
+-
+-        builder.Property(u => u.FailedLoginAttempts)
+-            .HasDefaultValue(0)
+-            .IsRequired();
+-
+-        builder.Property(u => u.CreatedAtUtc)
+-            .IsRequired();
+-
+-        builder.Property(u => u.UpdatedAtUtc)
+-            .IsRequired();
+-    }
+-}
+diff --git a/Features/Users/Entities/ApplicationUser.cs b/Features/Users/Entities/ApplicationUser.cs
+new file mode 100644
+index 0000000..e4cb026
+--- /dev/null
++++ b/Features/Users/Entities/ApplicationUser.cs
+@@ -0,0 +1,19 @@
++using Microsoft.AspNetCore.Identity;
++
++namespace Aurum.Api.Features.Users.Entities;
++
++/// <summary>
++/// The application's user type, backed entirely by ASP.NET Core Identity.
++/// All credential storage, password hashing, lockout, and token issuance
++/// (login, refresh, email confirmation, password reset) is owned by
++/// Identity itself — this class only adds the domain-specific profile
++/// fields Identity doesn't provide out of the box.
++/// </summary>
++public sealed class ApplicationUser : IdentityUser<Guid>
++{
++    public string? FullName { get; set; }
++
++    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
++
++    public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
++}
+diff --git a/Features/Users/Entities/User.cs b/Features/Users/Entities/User.cs
+deleted file mode 100644
+index 27b7e0d..0000000
+--- a/Features/Users/Entities/User.cs
++++ /dev/null
+@@ -1,36 +0,0 @@
+-namespace Aurum.Api.Features.Users.Entities;
+-
+-/// <summary>A registered account, with its own locally-owned credentials (see the Authentication feature).</summary>
+-public sealed class User
+-{
+-    public Guid Id { get; set; } = Guid.NewGuid();
+-
+-    /// <summary>Always stored lower-cased/trimmed — see AuthService.</summary>
+-    public string Email { get; set; } = string.Empty;
+-
+-    /// <summary>PBKDF2 hash produced by IPasswordHasher&lt;User&gt;. Never the raw password.</summary>
+-    public string PasswordHash { get; set; } = string.Empty;
+-
+-    public string? FullName { get; set; }
+-
+-    /// <summary>Single-role authorization model — see UserRole.</summary>
+-    public UserRole Role { get; set; } = UserRole.User;
+-
+-    /// <summary>Soft "account disabled" switch. Checked on every login.</summary>
+-    public bool IsActive { get; set; } = true;
+-
+-    /// <summary>Set the moment the user's email verification token is consumed. Null = unverified.</summary>
+-    public DateTime? EmailConfirmedAtUtc { get; set; }
+-
+-    public DateTime? LastLoginAtUtc { get; set; }
+-
+-    /// <summary>Consecutive failed login attempts since the last success. Reset to 0 on success.</summary>
+-    public int FailedLoginAttempts { get; set; }
+-
+-    /// <summary>Set once FailedLoginAttempts crosses AuthSettings.MaxFailedLoginAttempts. Login is rejected until this passes.</summary>
+-    public DateTime? LockedUntilUtc { get; set; }
+-
+-    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+-
+-    public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
+-}
+diff --git a/Features/Users/Entities/UserRole.cs b/Features/Users/Entities/UserRole.cs
+deleted file mode 100644
+index 34d6ef2..0000000
+--- a/Features/Users/Entities/UserRole.cs
++++ /dev/null
+@@ -1,14 +0,0 @@
+-namespace Aurum.Api.Features.Users.Entities;
+-
+-/// <summary>
+-/// Single-role authorization model. Stored as a string column (not a native
+-/// Postgres enum) so adding this column never requires a CREATE TYPE
+-/// migration — only an ALTER TABLE ADD COLUMN. Emitted into the JWT as a
+-/// standard ClaimTypes.Role claim, so built-in [Authorize(Roles = "Admin")]
+-/// attributes work with no extra wiring.
+-/// </summary>
+-public enum UserRole
+-{
+-    User = 0,
+-    Admin = 1,
+-}
+diff --git a/Infrastructure/Database/AppDbContext.cs b/Infrastructure/Database/AppDbContext.cs
+index 21586bb..ddcded6 100644
+--- a/Infrastructure/Database/AppDbContext.cs
++++ b/Infrastructure/Database/AppDbContext.cs
+@@ -1,35 +1,37 @@
+-using Aurum.Api.Features.Authentication.Entities;
+ using Aurum.Api.Features.Users.Entities;
++using Microsoft.AspNetCore.Identity;
++using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+ using Microsoft.EntityFrameworkCore;
+ 
+ namespace Aurum.Api.Infrastructure.Database;
+ 
+ /// <summary>
+ /// Primary EF Core database context for the application, backed by
+-/// PostgreSQL. Currently holds the Authentication/Users schema only —
+-/// add a DbSet here as each new feature introduces its own persistence
+-/// model.
++/// PostgreSQL. Authentication and user storage are fully owned by
++/// ASP.NET Core Identity (AspNetUsers, AspNetRoles, AspNetUserClaims,
++/// AspNetUserTokens, etc.) — add a DbSet here only for non-Identity
++/// features as they introduce their own persistence model.
+ /// </summary>
+-public sealed class AppDbContext : DbContext
++public sealed class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid>, Guid>
+ {
+     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
+     {
+     }
+ 
+-    public DbSet<User> Users => Set<User>();
+-
+-    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+-
+-    public DbSet<EmailVerificationToken> EmailVerificationTokens => Set<EmailVerificationToken>();
+-
+-    public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
+-
+     protected override void OnModelCreating(ModelBuilder modelBuilder)
+     {
+         base.OnModelCreating(modelBuilder);
+ 
+-        // Apply entity configurations from this assembly as feature modules
+-        // add IEntityTypeConfiguration<T> classes alongside their entities.
++        modelBuilder.Entity<ApplicationUser>(builder =>
++        {
++            builder.Property(u => u.FullName).HasMaxLength(120);
++            builder.Property(u => u.CreatedAtUtc).IsRequired();
++            builder.Property(u => u.UpdatedAtUtc).IsRequired();
++        });
++
++        // Apply entity configurations from this assembly as future
++        // (non-Identity) feature modules add IEntityTypeConfiguration<T>
++        // classes alongside their entities.
+         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+     }
+ }
+diff --git a/Infrastructure/Email/IEmailSender.cs b/Infrastructure/Email/IEmailSender.cs
+index 7a3fcb2..2531f52 100644
+--- a/Infrastructure/Email/IEmailSender.cs
++++ b/Infrastructure/Email/IEmailSender.cs
+@@ -1,11 +1,14 @@
+ namespace Aurum.Api.Infrastructure.Email;
+ 
+ /// <summary>
+-/// Abstraction over "send this email". Every caller (AuthService) depends
+-/// only on this interface, so the concrete sender can be swapped later —
+-/// e.g. for a real SMTP relay or transactional-email API — without
+-/// touching any business logic. See LoggingEmailSender for the default,
+-/// zero-cost implementation registered today.
++/// Low-level abstraction over "send this email". IdentityEmailSender is
++/// the only caller — it adapts ASP.NET Core Identity's own
++/// IEmailSender&lt;ApplicationUser&gt; contract (confirmation links,
++/// password reset links/codes) onto this interface, so the concrete
++/// transport can be swapped later — e.g. for a real SMTP relay or
++/// transactional-email API — without touching Identity wiring. See
++/// LoggingEmailSender for the default, zero-cost implementation
++/// registered today.
+ /// </summary>
+ public interface IEmailSender
+ {
+diff --git a/Infrastructure/Email/IdentityEmailSender.cs b/Infrastructure/Email/IdentityEmailSender.cs
+new file mode 100644
+index 0000000..d2dfe48
+--- /dev/null
++++ b/Infrastructure/Email/IdentityEmailSender.cs
+@@ -0,0 +1,40 @@
++using Aurum.Api.Features.Users.Entities;
++using Microsoft.AspNetCore.Identity;
++
++namespace Aurum.Api.Infrastructure.Email;
++
++/// <summary>
++/// Bridges ASP.NET Core Identity's built-in account-management endpoints
++/// (MapIdentityApi&lt;ApplicationUser&gt;) to the application's own
++/// IEmailSender. Identity calls this class directly whenever a user
++/// registers, requests a password reset, or resends a confirmation
++/// email — there is no custom Authentication feature left in the codebase
++/// that triggers these emails.
++/// </summary>
++public sealed class IdentityEmailSender : IEmailSender<ApplicationUser>
++{
++    private readonly IEmailSender _emailSender;
++
++    public IdentityEmailSender(IEmailSender emailSender)
++    {
++        _emailSender = emailSender;
++    }
++
++    public Task SendConfirmationLinkAsync(ApplicationUser user, string email, string confirmationLink) =>
++        _emailSender.SendAsync(
++            email,
++            "Confirm your Aurum email address",
++            $"<p>Please confirm your account by <a href='{confirmationLink}'>clicking here</a>.</p>");
++
++    public Task SendPasswordResetLinkAsync(ApplicationUser user, string email, string resetLink) =>
++        _emailSender.SendAsync(
++            email,
++            "Reset your Aurum password",
++            $"<p>Please reset your password by <a href='{resetLink}'>clicking here</a>.</p>");
++
++    public Task SendPasswordResetCodeAsync(ApplicationUser user, string email, string resetCode) =>
++        _emailSender.SendAsync(
++            email,
++            "Reset your Aurum password",
++            $"<p>Your password reset code is: <strong>{resetCode}</strong></p>");
++}
+diff --git a/Infrastructure/Security/AuthSettings.cs b/Infrastructure/Security/AuthSettings.cs
+deleted file mode 100644
+index acd9e25..0000000
+--- a/Infrastructure/Security/AuthSettings.cs
++++ /dev/null
+@@ -1,22 +0,0 @@
+-namespace Aurum.Api.Infrastructure.Security;
+-
+-/// <summary>
+-/// Strongly-typed binding for the "Auth" configuration section — thresholds
+-/// for account lockout and the lifetime of one-time tokens (password reset,
+-/// email verification). Kept separate from JwtSettings since these govern
+-/// application-level policy, not token signing.
+-/// </summary>
+-public sealed class AuthSettings
+-{
+-    public const string SectionName = "Auth";
+-
+-    /// <summary>Consecutive failed logins before the account is temporarily locked.</summary>
+-    public int MaxFailedLoginAttempts { get; set; } = 5;
+-
+-    /// <summary>How long a lockout lasts once triggered.</summary>
+-    public int LockoutMinutes { get; set; } = 15;
+-
+-    public int EmailVerificationTokenExpiryHours { get; set; } = 24;
+-
+-    public int PasswordResetTokenExpiryMinutes { get; set; } = 60;
+-}
+diff --git a/Infrastructure/Security/CurrentUserService.cs b/Infrastructure/Security/CurrentUserService.cs
+index b685005..62c24aa 100644
+--- a/Infrastructure/Security/CurrentUserService.cs
++++ b/Infrastructure/Security/CurrentUserService.cs
+@@ -1,4 +1,3 @@
+-using System.IdentityModel.Tokens.Jwt;
+ using System.Security.Claims;
+ using Aurum.Api.Core.Exceptions;
+ 
+@@ -20,7 +19,7 @@ public sealed class CurrentUserService : ICurrentUserService
+     {
+         get
+         {
+-            var claim = _httpContextAccessor.HttpContext?.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
++            var claim = _httpContextAccessor.HttpContext?.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+ 
+             if (string.IsNullOrEmpty(claim) || !Guid.TryParse(claim, out var userId))
+             {
+@@ -33,7 +32,8 @@ public sealed class CurrentUserService : ICurrentUserService
+     }
+ 
+     public string? Email =>
+-        _httpContextAccessor.HttpContext?.User.FindFirst(JwtRegisteredClaimNames.Email)?.Value;
++        _httpContextAccessor.HttpContext?.User.FindFirst(ClaimTypes.Email)?.Value
++        ?? _httpContextAccessor.HttpContext?.User.FindFirst(ClaimTypes.Name)?.Value;
+ 
+     public string? Role =>
+         _httpContextAccessor.HttpContext?.User.FindFirst(ClaimTypes.Role)?.Value;
+diff --git a/Infrastructure/Security/ICurrentUserService.cs b/Infrastructure/Security/ICurrentUserService.cs
+index ced34fc..f15ca47 100644
+--- a/Infrastructure/Security/ICurrentUserService.cs
++++ b/Infrastructure/Security/ICurrentUserService.cs
+@@ -1,9 +1,9 @@
+ namespace Aurum.Api.Infrastructure.Security;
+ 
+ /// <summary>
+-/// Reads the acting user out of the current HTTP request's validated JWT
+-/// claims. Every feature resolves "who is making this call" through this
+-/// single service.
++/// Reads the acting user out of the current HTTP request's validated
++/// ASP.NET Core Identity bearer-token claims. Every feature resolves
++/// "who is making this call" through this single service.
+ /// </summary>
+ public interface ICurrentUserService
+ {
+diff --git a/Infrastructure/Security/IJwtTokenService.cs b/Infrastructure/Security/IJwtTokenService.cs
+deleted file mode 100644
+index 731b127..0000000
+--- a/Infrastructure/Security/IJwtTokenService.cs
++++ /dev/null
+@@ -1,18 +0,0 @@
+-using Aurum.Api.Features.Users.Entities;
+-
+-namespace Aurum.Api.Infrastructure.Security;
+-
+-public interface IJwtTokenService
+-{
+-    /// <summary>
+-    /// Issues a signed access token for the given user.
+-    /// </summary>
+-    JwtToken GenerateToken(User user);
+-}
+-
+-/// <summary>
+-/// The signed token plus the moment it stops being valid, so callers (the
+-/// Authentication feature) can surface expiry to the client without
+-/// re-parsing the token.
+-/// </summary>
+-public sealed record JwtToken(string AccessToken, DateTime ExpiresAtUtc);
+diff --git a/Infrastructure/Security/IRefreshTokenService.cs b/Infrastructure/Security/IRefreshTokenService.cs
+deleted file mode 100644
+index 5b483e0..0000000
+--- a/Infrastructure/Security/IRefreshTokenService.cs
++++ /dev/null
+@@ -1,27 +0,0 @@
+-using Aurum.Api.Features.Authentication.Entities;
+-
+-namespace Aurum.Api.Infrastructure.Security;
+-
+-/// <summary>
+-/// Owns the full lifecycle of refresh tokens: issue, validate, rotate,
+-/// revoke. Refresh tokens are opaque random strings (not JWTs) — only their
+-/// SHA-256 hash lives in the database, so a database leak alone can't be
+-/// replayed as a live session.
+-/// </summary>
+-public interface IRefreshTokenService
+-{
+-    /// <summary>Issues and persists a new refresh token, returning the raw value to hand to the client.</summary>
+-    Task<string> IssueAsync(Guid userId, string? createdByIp, CancellationToken ct = default);
+-
+-    /// <summary>Looks up the raw token by its hash. Throws UnauthorizedAppException if it doesn't exist, is expired, or was already revoked.</summary>
+-    Task<RefreshToken> ValidateAsync(string rawToken, CancellationToken ct = default);
+-
+-    /// <summary>Revokes the given (already-validated) token and issues a replacement, returning the new raw value.</summary>
+-    Task<string> RotateAsync(RefreshToken current, string? createdByIp, CancellationToken ct = default);
+-
+-    /// <summary>Revokes a single token by its raw value. No-op if it doesn't exist or is already revoked.</summary>
+-    Task RevokeAsync(string rawToken, string? revokedByIp, CancellationToken ct = default);
+-
+-    /// <summary>Revokes every active token for a user — used on password reset, since a reset should kill every existing session.</summary>
+-    Task RevokeAllForUserAsync(Guid userId, CancellationToken ct = default);
+-}
+diff --git a/Infrastructure/Security/JwtSettings.cs b/Infrastructure/Security/JwtSettings.cs
+deleted file mode 100644
+index 3e4df9b..0000000
+--- a/Infrastructure/Security/JwtSettings.cs
++++ /dev/null
+@@ -1,29 +0,0 @@
+-namespace Aurum.Api.Infrastructure.Security;
+-
+-/// <summary>
+-/// Strongly-typed binding for the "Jwt" configuration section, plus the
+-/// JWT_SIGNING_KEY environment variable override (see
+-/// AuthenticationServiceExtensions.AddAppAuthentication). Consumed by both
+-/// JwtTokenService (issuing) and the JwtBearer handler (validation), so the
+-/// two are guaranteed to agree on issuer/audience/key.
+-/// </summary>
+-public sealed class JwtSettings
+-{
+-    public const string SectionName = "Jwt";
+-
+-    public string Issuer { get; set; } = "Aurum.Api";
+-
+-    public string Audience { get; set; } = "Aurum.Client";
+-
+-    /// <summary>
+-    /// HMAC-SHA256 signing key. Must be at least 32 bytes (256 bits).
+-    /// Always set from the JWT_SIGNING_KEY environment variable in any
+-    /// deployed environment — see .env.example.
+-    /// </summary>
+-    public string SigningKey { get; set; } = string.Empty;
+-
+-    public int AccessTokenExpiryMinutes { get; set; } = 60;
+-
+-    /// <summary>Lifetime of an issued refresh token. Consumed by IRefreshTokenService, not by JwtTokenService itself (refresh tokens are opaque, not JWTs).</summary>
+-    public int RefreshTokenExpiryDays { get; set; } = 30;
+-}
+diff --git a/Infrastructure/Security/JwtTokenService.cs b/Infrastructure/Security/JwtTokenService.cs
+deleted file mode 100644
+index 357ea29..0000000
+--- a/Infrastructure/Security/JwtTokenService.cs
++++ /dev/null
+@@ -1,52 +0,0 @@
+-using System.IdentityModel.Tokens.Jwt;
+-using System.Security.Claims;
+-using System.Text;
+-using Aurum.Api.Features.Users.Entities;
+-using Microsoft.Extensions.Options;
+-using Microsoft.IdentityModel.Tokens;
+-
+-namespace Aurum.Api.Infrastructure.Security;
+-
+-/// <summary>
+-/// Issues HS256-signed JWTs carrying the user id ("sub"), email, and role
+-/// as claims. Validation of the same token happens in the JwtBearer handler
+-/// registered by AuthenticationServiceExtensions.AddAppAuthentication —
+-/// both sides read the same JwtSettings, so they always agree. The role
+-/// claim is emitted as the standard ClaimTypes.Role so ASP.NET's built-in
+-/// [Authorize(Roles = "Admin")] attribute works with no extra wiring.
+-/// </summary>
+-public sealed class JwtTokenService : IJwtTokenService
+-{
+-    private readonly JwtSettings _settings;
+-
+-    public JwtTokenService(IOptions<JwtSettings> options)
+-    {
+-        _settings = options.Value;
+-    }
+-
+-    public JwtToken GenerateToken(User user)
+-    {
+-        var expiresAtUtc = DateTime.UtcNow.AddMinutes(_settings.AccessTokenExpiryMinutes);
+-
+-        var claims = new[]
+-        {
+-            new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+-            new Claim(JwtRegisteredClaimNames.Email, user.Email),
+-            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+-            new Claim(ClaimTypes.Role, user.Role.ToString()),
+-        };
+-
+-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.SigningKey));
+-        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+-
+-        var token = new JwtSecurityToken(
+-            issuer: _settings.Issuer,
+-            audience: _settings.Audience,
+-            claims: claims,
+-            expires: expiresAtUtc,
+-            signingCredentials: credentials);
+-
+-        var accessToken = new JwtSecurityTokenHandler().WriteToken(token);
+-        return new JwtToken(accessToken, expiresAtUtc);
+-    }
+-}
+diff --git a/Infrastructure/Security/RefreshTokenService.cs b/Infrastructure/Security/RefreshTokenService.cs
+deleted file mode 100644
+index 5d75c27..0000000
+--- a/Infrastructure/Security/RefreshTokenService.cs
++++ /dev/null
+@@ -1,105 +0,0 @@
+-using Aurum.Api.Core.Exceptions;
+-using Aurum.Api.Features.Authentication.Entities;
+-using Aurum.Api.Infrastructure.Database;
+-using Microsoft.EntityFrameworkCore;
+-using Microsoft.Extensions.Options;
+-
+-namespace Aurum.Api.Infrastructure.Security;
+-
+-public sealed class RefreshTokenService : IRefreshTokenService
+-{
+-    private readonly AppDbContext _db;
+-    private readonly JwtSettings _settings;
+-
+-    public RefreshTokenService(AppDbContext db, IOptions<JwtSettings> settings)
+-    {
+-        _db = db;
+-        _settings = settings.Value;
+-    }
+-
+-    public async Task<string> IssueAsync(Guid userId, string? createdByIp, CancellationToken ct = default)
+-    {
+-        var rawToken = SecureTokenGenerator.GenerateUrlSafeToken();
+-
+-        var entity = new RefreshToken
+-        {
+-            UserId = userId,
+-            TokenHash = SecureTokenGenerator.Hash(rawToken),
+-            ExpiresAtUtc = DateTime.UtcNow.AddDays(_settings.RefreshTokenExpiryDays),
+-            CreatedByIp = createdByIp,
+-        };
+-
+-        _db.RefreshTokens.Add(entity);
+-        await _db.SaveChangesAsync(ct);
+-
+-        return rawToken;
+-    }
+-
+-    public async Task<RefreshToken> ValidateAsync(string rawToken, CancellationToken ct = default)
+-    {
+-        var hash = SecureTokenGenerator.Hash(rawToken);
+-        var token = await _db.RefreshTokens.FirstOrDefaultAsync(t => t.TokenHash == hash, ct);
+-
+-        if (token is null || !token.IsActive)
+-        {
+-            throw new UnauthorizedAppException("Refresh token is invalid, expired, or has already been used.");
+-        }
+-
+-        return token;
+-    }
+-
+-    public async Task<string> RotateAsync(RefreshToken current, string? createdByIp, CancellationToken ct = default)
+-    {
+-        var rawToken = SecureTokenGenerator.GenerateUrlSafeToken();
+-
+-        var replacement = new RefreshToken
+-        {
+-            UserId = current.UserId,
+-            TokenHash = SecureTokenGenerator.Hash(rawToken),
+-            ExpiresAtUtc = DateTime.UtcNow.AddDays(_settings.RefreshTokenExpiryDays),
+-            CreatedByIp = createdByIp,
+-        };
+-
+-        current.RevokedAtUtc = DateTime.UtcNow;
+-        current.RevokedByIp = createdByIp;
+-        current.ReplacedByTokenId = replacement.Id;
+-
+-        _db.RefreshTokens.Add(replacement);
+-        await _db.SaveChangesAsync(ct);
+-
+-        return rawToken;
+-    }
+-
+-    public async Task RevokeAsync(string rawToken, string? revokedByIp, CancellationToken ct = default)
+-    {
+-        var hash = SecureTokenGenerator.Hash(rawToken);
+-        var token = await _db.RefreshTokens.FirstOrDefaultAsync(t => t.TokenHash == hash, ct);
+-
+-        if (token is null || !token.IsActive)
+-        {
+-            return;
+-        }
+-
+-        token.RevokedAtUtc = DateTime.UtcNow;
+-        token.RevokedByIp = revokedByIp;
+-        await _db.SaveChangesAsync(ct);
+-    }
+-
+-    public async Task RevokeAllForUserAsync(Guid userId, CancellationToken ct = default)
+-    {
+-        var activeTokens = await _db.RefreshTokens
+-            .Where(t => t.UserId == userId && t.RevokedAtUtc == null && t.ExpiresAtUtc > DateTime.UtcNow)
+-            .ToListAsync(ct);
+-
+-        var now = DateTime.UtcNow;
+-        foreach (var token in activeTokens)
+-        {
+-            token.RevokedAtUtc = now;
+-        }
+-
+-        if (activeTokens.Count > 0)
+-        {
+-            await _db.SaveChangesAsync(ct);
+-        }
+-    }
+-}
+diff --git a/Infrastructure/Security/SecureTokenGenerator.cs b/Infrastructure/Security/SecureTokenGenerator.cs
+deleted file mode 100644
+index 9aa32fe..0000000
+--- a/Infrastructure/Security/SecureTokenGenerator.cs
++++ /dev/null
+@@ -1,32 +0,0 @@
+-using System.Security.Cryptography;
+-using System.Text;
+-
+-namespace Aurum.Api.Infrastructure.Security;
+-
+-/// <summary>
+-/// Generates the opaque, single-use tokens used for refresh tokens,
+-/// password resets, and email verification. Only the SHA-256 hash of the
+-/// raw value is ever persisted — the raw value goes to the client (refresh
+-/// token) or the user's inbox (reset/verification link) and is never
+-/// written to the database itself. This is the same "store the hash, not
+-/// the secret" approach used for the password hash, applied to every
+-/// bearer-style secret in the system.
+-/// </summary>
+-public static class SecureTokenGenerator
+-{
+-    public static string GenerateUrlSafeToken(int byteLength = 32)
+-    {
+-        var bytes = RandomNumberGenerator.GetBytes(byteLength);
+-        return Convert.ToBase64String(bytes)
+-            .Replace('+', '-')
+-            .Replace('/', '_')
+-            .TrimEnd('=');
+-    }
+-
+-    public static string Hash(string rawToken)
+-    {
+-        var bytes = Encoding.UTF8.GetBytes(rawToken);
+-        var hash = SHA256.HashData(bytes);
+-        return Convert.ToHexString(hash);
+-    }
+-}
+diff --git a/Migrations/20260722043753_InitialCreate.Designer.cs b/Migrations/20260722043753_InitialCreate.Designer.cs
+deleted file mode 100644
+index 8fc131d..0000000
+--- a/Migrations/20260722043753_InitialCreate.Designer.cs
++++ /dev/null
+@@ -1,206 +0,0 @@
+-﻿// <auto-generated />
+-using System;
+-using Aurum.Api.Infrastructure.Database;
+-using Microsoft.EntityFrameworkCore;
+-using Microsoft.EntityFrameworkCore.Infrastructure;
+-using Microsoft.EntityFrameworkCore.Migrations;
+-using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+-using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+-
+-#nullable disable
+-
+-namespace Aurum.Api.Migrations
+-{
+-    [DbContext(typeof(AppDbContext))]
+-    [Migration("20260722043753_InitialCreate")]
+-    partial class InitialCreate
+-    {
+-        /// <inheritdoc />
+-        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+-        {
+-#pragma warning disable 612, 618
+-            modelBuilder
+-                .HasAnnotation("ProductVersion", "10.0.0-preview.1.25081.1")
+-                .HasAnnotation("Relational:MaxIdentifierLength", 63);
+-
+-            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+-
+-            modelBuilder.Entity("Aurum.Api.Features.Authentication.Entities.EmailVerificationToken", b =>
+-                {
+-                    b.Property<Guid>("Id")
+-                        .ValueGeneratedOnAdd()
+-                        .HasColumnType("uuid");
+-
+-                    b.Property<DateTime?>("ConsumedAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<DateTime>("CreatedAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<DateTime>("ExpiresAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<string>("TokenHash")
+-                        .IsRequired()
+-                        .HasMaxLength(64)
+-                        .HasColumnType("character varying(64)");
+-
+-                    b.Property<Guid>("UserId")
+-                        .HasColumnType("uuid");
+-
+-                    b.HasKey("Id");
+-
+-                    b.HasIndex("TokenHash")
+-                        .IsUnique()
+-                        .HasDatabaseName("email_verification_tokens_token_hash_uq");
+-
+-                    b.HasIndex("UserId")
+-                        .HasDatabaseName("email_verification_tokens_user_id_idx");
+-
+-                    b.ToTable("email_verification_tokens", (string)null);
+-                });
+-
+-            modelBuilder.Entity("Aurum.Api.Features.Authentication.Entities.PasswordResetToken", b =>
+-                {
+-                    b.Property<Guid>("Id")
+-                        .ValueGeneratedOnAdd()
+-                        .HasColumnType("uuid");
+-
+-                    b.Property<DateTime?>("ConsumedAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<DateTime>("CreatedAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<DateTime>("ExpiresAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<string>("TokenHash")
+-                        .IsRequired()
+-                        .HasMaxLength(64)
+-                        .HasColumnType("character varying(64)");
+-
+-                    b.Property<Guid>("UserId")
+-                        .HasColumnType("uuid");
+-
+-                    b.HasKey("Id");
+-
+-                    b.HasIndex("TokenHash")
+-                        .IsUnique()
+-                        .HasDatabaseName("password_reset_tokens_token_hash_uq");
+-
+-                    b.HasIndex("UserId")
+-                        .HasDatabaseName("password_reset_tokens_user_id_idx");
+-
+-                    b.ToTable("password_reset_tokens", (string)null);
+-                });
+-
+-            modelBuilder.Entity("Aurum.Api.Features.Authentication.Entities.RefreshToken", b =>
+-                {
+-                    b.Property<Guid>("Id")
+-                        .ValueGeneratedOnAdd()
+-                        .HasColumnType("uuid");
+-
+-                    b.Property<DateTime>("CreatedAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<string>("CreatedByIp")
+-                        .HasMaxLength(64)
+-                        .HasColumnType("character varying(64)");
+-
+-                    b.Property<DateTime>("ExpiresAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<Guid?>("ReplacedByTokenId")
+-                        .HasColumnType("uuid");
+-
+-                    b.Property<DateTime?>("RevokedAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<string>("RevokedByIp")
+-                        .HasMaxLength(64)
+-                        .HasColumnType("character varying(64)");
+-
+-                    b.Property<string>("TokenHash")
+-                        .IsRequired()
+-                        .HasMaxLength(64)
+-                        .HasColumnType("character varying(64)");
+-
+-                    b.Property<Guid>("UserId")
+-                        .HasColumnType("uuid");
+-
+-                    b.HasKey("Id");
+-
+-                    b.HasIndex("TokenHash")
+-                        .IsUnique()
+-                        .HasDatabaseName("refresh_tokens_token_hash_uq");
+-
+-                    b.HasIndex("UserId")
+-                        .HasDatabaseName("refresh_tokens_user_id_idx");
+-
+-                    b.ToTable("refresh_tokens", (string)null);
+-                });
+-
+-            modelBuilder.Entity("Aurum.Api.Features.Users.Entities.User", b =>
+-                {
+-                    b.Property<Guid>("Id")
+-                        .ValueGeneratedOnAdd()
+-                        .HasColumnType("uuid");
+-
+-                    b.Property<DateTime>("CreatedAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<string>("Email")
+-                        .IsRequired()
+-                        .HasMaxLength(255)
+-                        .HasColumnType("character varying(255)");
+-
+-                    b.Property<DateTime?>("EmailConfirmedAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<int>("FailedLoginAttempts")
+-                        .ValueGeneratedOnAdd()
+-                        .HasColumnType("integer")
+-                        .HasDefaultValue(0);
+-
+-                    b.Property<string>("FullName")
+-                        .HasMaxLength(120)
+-                        .HasColumnType("character varying(120)");
+-
+-                    b.Property<bool>("IsActive")
+-                        .ValueGeneratedOnAdd()
+-                        .HasColumnType("boolean")
+-                        .HasDefaultValue(true);
+-
+-                    b.Property<DateTime?>("LastLoginAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<DateTime?>("LockedUntilUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<string>("PasswordHash")
+-                        .IsRequired()
+-                        .HasColumnType("text");
+-
+-                    b.Property<string>("Role")
+-                        .IsRequired()
+-                        .ValueGeneratedOnAdd()
+-                        .HasMaxLength(20)
+-                        .HasColumnType("character varying(20)")
+-                        .HasDefaultValue("User");
+-
+-                    b.Property<DateTime>("UpdatedAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.HasKey("Id");
+-
+-                    b.HasIndex("Email")
+-                        .IsUnique()
+-                        .HasDatabaseName("users_email_uq");
+-
+-                    b.ToTable("users", (string)null);
+-                });
+-#pragma warning restore 612, 618
+-        }
+-    }
+-}
+diff --git a/Migrations/20260722043753_InitialCreate.cs b/Migrations/20260722043753_InitialCreate.cs
+deleted file mode 100644
+index bbf0a0a..0000000
+--- a/Migrations/20260722043753_InitialCreate.cs
++++ /dev/null
+@@ -1,143 +0,0 @@
+-﻿using System;
+-using Microsoft.EntityFrameworkCore.Migrations;
+-
+-#nullable disable
+-
+-namespace Aurum.Api.Migrations
+-{
+-    /// <inheritdoc />
+-    public partial class InitialCreate : Migration
+-    {
+-        /// <inheritdoc />
+-        protected override void Up(MigrationBuilder migrationBuilder)
+-        {
+-            migrationBuilder.CreateTable(
+-                name: "email_verification_tokens",
+-                columns: table => new
+-                {
+-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+-                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+-                    TokenHash = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+-                    ExpiresAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+-                    CreatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+-                    ConsumedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+-                },
+-                constraints: table =>
+-                {
+-                    table.PrimaryKey("PK_email_verification_tokens", x => x.Id);
+-                });
+-
+-            migrationBuilder.CreateTable(
+-                name: "password_reset_tokens",
+-                columns: table => new
+-                {
+-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+-                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+-                    TokenHash = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+-                    ExpiresAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+-                    CreatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+-                    ConsumedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+-                },
+-                constraints: table =>
+-                {
+-                    table.PrimaryKey("PK_password_reset_tokens", x => x.Id);
+-                });
+-
+-            migrationBuilder.CreateTable(
+-                name: "refresh_tokens",
+-                columns: table => new
+-                {
+-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+-                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+-                    TokenHash = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+-                    ExpiresAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+-                    CreatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+-                    CreatedByIp = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
+-                    RevokedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+-                    RevokedByIp = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
+-                    ReplacedByTokenId = table.Column<Guid>(type: "uuid", nullable: true)
+-                },
+-                constraints: table =>
+-                {
+-                    table.PrimaryKey("PK_refresh_tokens", x => x.Id);
+-                });
+-
+-            migrationBuilder.CreateTable(
+-                name: "users",
+-                columns: table => new
+-                {
+-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+-                    Email = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: false),
+-                    PasswordHash = table.Column<string>(type: "text", nullable: false),
+-                    FullName = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: true),
+-                    Role = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false, defaultValue: "User"),
+-                    IsActive = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
+-                    EmailConfirmedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+-                    LastLoginAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+-                    FailedLoginAttempts = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
+-                    LockedUntilUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+-                    CreatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+-                    UpdatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+-                },
+-                constraints: table =>
+-                {
+-                    table.PrimaryKey("PK_users", x => x.Id);
+-                });
+-
+-            migrationBuilder.CreateIndex(
+-                name: "email_verification_tokens_token_hash_uq",
+-                table: "email_verification_tokens",
+-                column: "TokenHash",
+-                unique: true);
+-
+-            migrationBuilder.CreateIndex(
+-                name: "email_verification_tokens_user_id_idx",
+-                table: "email_verification_tokens",
+-                column: "UserId");
+-
+-            migrationBuilder.CreateIndex(
+-                name: "password_reset_tokens_token_hash_uq",
+-                table: "password_reset_tokens",
+-                column: "TokenHash",
+-                unique: true);
+-
+-            migrationBuilder.CreateIndex(
+-                name: "password_reset_tokens_user_id_idx",
+-                table: "password_reset_tokens",
+-                column: "UserId");
+-
+-            migrationBuilder.CreateIndex(
+-                name: "refresh_tokens_token_hash_uq",
+-                table: "refresh_tokens",
+-                column: "TokenHash",
+-                unique: true);
+-
+-            migrationBuilder.CreateIndex(
+-                name: "refresh_tokens_user_id_idx",
+-                table: "refresh_tokens",
+-                column: "UserId");
+-
+-            migrationBuilder.CreateIndex(
+-                name: "users_email_uq",
+-                table: "users",
+-                column: "Email",
+-                unique: true);
+-        }
+-
+-        /// <inheritdoc />
+-        protected override void Down(MigrationBuilder migrationBuilder)
+-        {
+-            migrationBuilder.DropTable(
+-                name: "email_verification_tokens");
+-
+-            migrationBuilder.DropTable(
+-                name: "password_reset_tokens");
+-
+-            migrationBuilder.DropTable(
+-                name: "refresh_tokens");
+-
+-            migrationBuilder.DropTable(
+-                name: "users");
+-        }
+-    }
+-}
+diff --git a/Migrations/AppDbContextModelSnapshot.cs b/Migrations/AppDbContextModelSnapshot.cs
+deleted file mode 100644
+index f082d37..0000000
+--- a/Migrations/AppDbContextModelSnapshot.cs
++++ /dev/null
+@@ -1,203 +0,0 @@
+-﻿// <auto-generated />
+-using System;
+-using Aurum.Api.Infrastructure.Database;
+-using Microsoft.EntityFrameworkCore;
+-using Microsoft.EntityFrameworkCore.Infrastructure;
+-using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+-using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+-
+-#nullable disable
+-
+-namespace Aurum.Api.Migrations
+-{
+-    [DbContext(typeof(AppDbContext))]
+-    partial class AppDbContextModelSnapshot : ModelSnapshot
+-    {
+-        protected override void BuildModel(ModelBuilder modelBuilder)
+-        {
+-#pragma warning disable 612, 618
+-            modelBuilder
+-                .HasAnnotation("ProductVersion", "10.0.0-preview.1.25081.1")
+-                .HasAnnotation("Relational:MaxIdentifierLength", 63);
+-
+-            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+-
+-            modelBuilder.Entity("Aurum.Api.Features.Authentication.Entities.EmailVerificationToken", b =>
+-                {
+-                    b.Property<Guid>("Id")
+-                        .ValueGeneratedOnAdd()
+-                        .HasColumnType("uuid");
+-
+-                    b.Property<DateTime?>("ConsumedAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<DateTime>("CreatedAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<DateTime>("ExpiresAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<string>("TokenHash")
+-                        .IsRequired()
+-                        .HasMaxLength(64)
+-                        .HasColumnType("character varying(64)");
+-
+-                    b.Property<Guid>("UserId")
+-                        .HasColumnType("uuid");
+-
+-                    b.HasKey("Id");
+-
+-                    b.HasIndex("TokenHash")
+-                        .IsUnique()
+-                        .HasDatabaseName("email_verification_tokens_token_hash_uq");
+-
+-                    b.HasIndex("UserId")
+-                        .HasDatabaseName("email_verification_tokens_user_id_idx");
+-
+-                    b.ToTable("email_verification_tokens", (string)null);
+-                });
+-
+-            modelBuilder.Entity("Aurum.Api.Features.Authentication.Entities.PasswordResetToken", b =>
+-                {
+-                    b.Property<Guid>("Id")
+-                        .ValueGeneratedOnAdd()
+-                        .HasColumnType("uuid");
+-
+-                    b.Property<DateTime?>("ConsumedAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<DateTime>("CreatedAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<DateTime>("ExpiresAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<string>("TokenHash")
+-                        .IsRequired()
+-                        .HasMaxLength(64)
+-                        .HasColumnType("character varying(64)");
+-
+-                    b.Property<Guid>("UserId")
+-                        .HasColumnType("uuid");
+-
+-                    b.HasKey("Id");
+-
+-                    b.HasIndex("TokenHash")
+-                        .IsUnique()
+-                        .HasDatabaseName("password_reset_tokens_token_hash_uq");
+-
+-                    b.HasIndex("UserId")
+-                        .HasDatabaseName("password_reset_tokens_user_id_idx");
+-
+-                    b.ToTable("password_reset_tokens", (string)null);
+-                });
+-
+-            modelBuilder.Entity("Aurum.Api.Features.Authentication.Entities.RefreshToken", b =>
+-                {
+-                    b.Property<Guid>("Id")
+-                        .ValueGeneratedOnAdd()
+-                        .HasColumnType("uuid");
+-
+-                    b.Property<DateTime>("CreatedAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<string>("CreatedByIp")
+-                        .HasMaxLength(64)
+-                        .HasColumnType("character varying(64)");
+-
+-                    b.Property<DateTime>("ExpiresAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<Guid?>("ReplacedByTokenId")
+-                        .HasColumnType("uuid");
+-
+-                    b.Property<DateTime?>("RevokedAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<string>("RevokedByIp")
+-                        .HasMaxLength(64)
+-                        .HasColumnType("character varying(64)");
+-
+-                    b.Property<string>("TokenHash")
+-                        .IsRequired()
+-                        .HasMaxLength(64)
+-                        .HasColumnType("character varying(64)");
+-
+-                    b.Property<Guid>("UserId")
+-                        .HasColumnType("uuid");
+-
+-                    b.HasKey("Id");
+-
+-                    b.HasIndex("TokenHash")
+-                        .IsUnique()
+-                        .HasDatabaseName("refresh_tokens_token_hash_uq");
+-
+-                    b.HasIndex("UserId")
+-                        .HasDatabaseName("refresh_tokens_user_id_idx");
+-
+-                    b.ToTable("refresh_tokens", (string)null);
+-                });
+-
+-            modelBuilder.Entity("Aurum.Api.Features.Users.Entities.User", b =>
+-                {
+-                    b.Property<Guid>("Id")
+-                        .ValueGeneratedOnAdd()
+-                        .HasColumnType("uuid");
+-
+-                    b.Property<DateTime>("CreatedAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<string>("Email")
+-                        .IsRequired()
+-                        .HasMaxLength(255)
+-                        .HasColumnType("character varying(255)");
+-
+-                    b.Property<DateTime?>("EmailConfirmedAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<int>("FailedLoginAttempts")
+-                        .ValueGeneratedOnAdd()
+-                        .HasColumnType("integer")
+-                        .HasDefaultValue(0);
+-
+-                    b.Property<string>("FullName")
+-                        .HasMaxLength(120)
+-                        .HasColumnType("character varying(120)");
+-
+-                    b.Property<bool>("IsActive")
+-                        .ValueGeneratedOnAdd()
+-                        .HasColumnType("boolean")
+-                        .HasDefaultValue(true);
+-
+-                    b.Property<DateTime?>("LastLoginAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<DateTime?>("LockedUntilUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.Property<string>("PasswordHash")
+-                        .IsRequired()
+-                        .HasColumnType("text");
+-
+-                    b.Property<string>("Role")
+-                        .IsRequired()
+-                        .ValueGeneratedOnAdd()
+-                        .HasMaxLength(20)
+-                        .HasColumnType("character varying(20)")
+-                        .HasDefaultValue("User");
+-
+-                    b.Property<DateTime>("UpdatedAtUtc")
+-                        .HasColumnType("timestamp with time zone");
+-
+-                    b.HasKey("Id");
+-
+-                    b.HasIndex("Email")
+-                        .IsUnique()
+-                        .HasDatabaseName("users_email_uq");
+-
+-                    b.ToTable("users", (string)null);
+-                });
+-#pragma warning restore 612, 618
+-        }
+-    }
+-}
+diff --git a/Program.cs b/Program.cs
+index 43b4a04..ae1b831 100644
+--- a/Program.cs
++++ b/Program.cs
+@@ -1,6 +1,7 @@
+ using System.Reflection;
+ using Aurum.Api.Core.Extensions;
+ using Aurum.Api.Core.Middleware;
++using Aurum.Api.Features.Users.Entities;
+ using Aurum.Api.Infrastructure.Logging;
+ using FluentValidation;
+ using HealthChecks.UI.Client;
+@@ -93,6 +94,12 @@ app.UseAuthorization();
+ 
+ app.MapControllers();
+ 
++// Registers /register, /login, /refresh, /confirmEmail,
++// /resendConfirmationEmail, /forgotPassword, /resetPassword, /manage/*,
++// backed entirely by ASP.NET Core Identity — no custom Authentication
++// feature exists in this codebase.
++app.MapGroup("/api/v1/auth").MapIdentityApi<ApplicationUser>();
++
+ app.MapHealthChecks("/health", new HealthCheckOptions
+ {
+     ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+diff --git a/README.md b/README.md
+index ef1df06..cef65e6 100644
+--- a/README.md
++++ b/README.md
+@@ -66,10 +66,11 @@ Aurum.Api
+ 
+ 2. **Configure secrets**
+ 
+-   Copy `.env.example` to `.env` and fill in `DATABASE_URL` and
+-   `JWT_SIGNING_KEY` (see the file for details), or set the same values via
+-   `dotnet user-secrets` / real environment variables. Neither has a
+-   default — the app throws on startup if either is missing.
++   Copy `.env.example` to `.env` and fill in `DATABASE_URL` (see the file
++   for details), or set the same value via `dotnet user-secrets` / a real
++   environment variable. It has no default — the app throws on startup if
++   it's missing. No signing key is needed: authentication is fully owned
++   by ASP.NET Core Identity, which manages its own bearer tokens.
+ 
+ 3. **Create the schema**
+ 
+@@ -95,15 +96,16 @@ Aurum.Api
+ | Setting                         | Environment variable            | Purpose                                   |
+ |----------------------------------|----------------------------------|--------------------------------------------|
+ | `ConnectionStrings:DefaultConnection` | `DATABASE_URL`              | PostgreSQL connection (URL or keyword=value) |
+-| `Jwt:SigningKey`                 | `JWT_SIGNING_KEY`                 | JWT signing secret — required, no default |
+ | `Cors:AllowedOrigins`            | `ALLOWED_ORIGINS` (comma-separated) | Origins allowed to call the API        |
+ | `RateLimiting:PermitLimit`       | `RATELIMITING__PERMITLIMIT`      | Requests allowed per window, per client IP |
+ | `RateLimiting:WindowSeconds`     | `RATELIMITING__WINDOWSECONDS`    | Length of the rate limit window in seconds |
+ | —                                | `PORT`                           | Port Kestrel binds to inside the container |
+ 
+ Environment variables always take priority over `appsettings*.json` values, which is the
+-convention used for Render deployment. See `.env.example` for the full list, including
+-Authentication's `Auth:*` lockout/token-expiry settings.
++convention used for Render deployment. See `.env.example` for the full list. Lockout
++thresholds and token lifetimes are configured directly in
++`Core/Extensions/SecurityServiceExtensions.cs` via `AddIdentityApiEndpoints`, not through
++environment variables.
+ 
+ ## Deploying to Render.com
+ 
+@@ -128,7 +130,6 @@ build and run the API as a **Docker**-type Web Service.
+    |--------------------|--------------------------------------------------------------------|
+    | `ASPNETCORE_ENVIRONMENT` | `Production`                                                  |
+    | `DATABASE_URL`     | Neon connection string                                             |
+-   | `JWT_SIGNING_KEY`  | A long random secret — never reuse a development value             |
+    | `ALLOWED_ORIGINS`  | Your frontend origin(s), comma-separated                           |
+ 
+ 5. **Deploy.** Render will build the Docker image, start the container, and route
+diff --git a/appsettings.json b/appsettings.json
+index 48545c0..aba679d 100644
+--- a/appsettings.json
++++ b/appsettings.json
+@@ -19,19 +19,6 @@
+     "WindowSeconds": 60,
+     "QueueLimit": 0
+   },
+-  "Jwt": {
+-    "Issuer": "Aurum.Api",
+-    "Audience": "Aurum.Client",
+-    "SigningKey": "",
+-    "AccessTokenExpiryMinutes": 60,
+-    "RefreshTokenExpiryDays": 30
+-  },
+-  "Auth": {
+-    "MaxFailedLoginAttempts": 5,
+-    "LockoutMinutes": 15,
+-    "EmailVerificationTokenExpiryHours": 24,
+-    "PasswordResetTokenExpiryMinutes": 60
+-  },
+   "Serilog": {
+     "MinimumLevel": {
+       "Default": "Information",

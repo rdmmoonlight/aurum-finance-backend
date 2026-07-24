@@ -1,0 +1,75 @@
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning",
+      "Microsoft.EntityFrameworkCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*",
+  "AppVersion": "0.1.0",
+  "ConnectionStrings": {
+    "DefaultConnection": ""
+  },
+  "Cors": {
+    "AllowedOrigins": [
+      "https://aurumfi-preview.up.railway.app",
+      "https://aurumfi.up.railway.app"
+    ]
+  },
+  "RateLimiting": {
+    "PermitLimit": 100,
+    "WindowSeconds": 60,
+    "QueueLimit": 0
+  },
+  "Jwt": {
+    "Issuer": "Aurum.Api",
+    "Audience": "Aurum.Client",
+    "SigningKey": "",
+    "AccessTokenExpiryMinutes": 60,
+    "RefreshTokenExpiryDays": 30
+  },
+  "Auth": {
+    "MaxFailedLoginAttempts": 5,
+    "LockoutMinutes": 15,
+    "EmailVerificationTokenExpiryHours": 24,
+    "PasswordResetTokenExpiryMinutes": 60
+  },
+  "Smtp": {
+    "Host": "smtp.gmail.com",
+    "Port": 587,
+    "UserName": "emailadmin@gmail.com",
+    "Password": "app-password-16-digit",
+    "FromEmail": "emailadmin@gmail.com",
+    "FromName": "Aurum Finance",
+    "EnableSsl": true
+  },
+  "ClientApp": {
+    "BaseUrl": "https://aurumfi-preview.up.railway.app"
+  },
+  "Serilog": {
+    "MinimumLevel": {
+      "Default": "Information",
+      "Override": {
+        "Microsoft.AspNetCore": "Warning",
+        "Microsoft.EntityFrameworkCore": "Warning"
+      }
+    },
+    "WriteTo": [
+      {
+        "Name": "Console",
+        "Args": {
+          "outputTemplate": "[{Timestamp:yyyy-MM-dd HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}"
+        }
+      },
+      {
+        "Name": "File",
+        "Args": {
+          "path": "logs/aurum-api-.log",
+          "rollingInterval": "Day",
+          "retainedFileCountLimit": 14
+        }
+      }
+    ]
+  }
+}

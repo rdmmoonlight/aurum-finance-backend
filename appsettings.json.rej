@@ -1,0 +1,22 @@
+--- appsettings.json
++++ appsettings.json
+@@ -19,19 +19,6 @@
+     "WindowSeconds": 60,
+     "QueueLimit": 0
+   },
+-  "Jwt": {
+-    "Issuer": "Aurum.Api",
+-    "Audience": "Aurum.Client",
+-    "SigningKey": "",
+-    "AccessTokenExpiryMinutes": 60,
+-    "RefreshTokenExpiryDays": 30
+-  },
+-  "Auth": {
+-    "MaxFailedLoginAttempts": 5,
+-    "LockoutMinutes": 15,
+-    "EmailVerificationTokenExpiryHours": 24,
+-    "PasswordResetTokenExpiryMinutes": 60
+-  },
+   "Serilog": {
+     "MinimumLevel": {
+       "Default": "Information",
